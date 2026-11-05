@@ -57,6 +57,9 @@
     <ClCompile Include="ThumbnailCache.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="BatchRenameDlg.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="FlirThermal.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -318,6 +321,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="ThumbnailCache.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="BatchRenameDlg.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="FlirThermal.h">

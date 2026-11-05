@@ -319,9 +319,13 @@ void CNavigationPanelCtl::DoNavPanelAnimation() {
 			bmInfo.bmiHeader.biCompression = BI_RGB;
 			int xDest = (m_pMainDlg->ClientRect().Width() - pCurrentImage->DIBWidth()) / 2 + m_pMainDlg->GetDIBOffset().x;
 			int yDest = (m_pMainDlg->ClientRect().Height() - pCurrentImage->DIBHeight()) / 2 + m_pMainDlg->GetDIBOffset().y;
-			CPaintMemDCMgr::BitBltBlended(*m_pMemDCAnimation, screenDC, CSize(rectNavPanel.Width(), rectNavPanel.Height()), pDIBData, &bmInfo, 
-								  CPoint(xDest - rectNavPanel.left, yDest - rectNavPanel.top), CSize(pCurrentImage->DIBWidth(), pCurrentImage->DIBHeight()), 
+			// transparent images on the selected background, like in the main view
+			uint32* pComposited = pCurrentImage->HasAlphaChannel() ?
+				Helpers::CopyDIBOnBackground(pDIBData, pCurrentImage->DIBWidth(), pCurrentImage->DIBHeight(), CSettingsProvider::This().BackgroundMode(), xDest, yDest) : NULL;
+			CPaintMemDCMgr::BitBltBlended(*m_pMemDCAnimation, screenDC, CSize(rectNavPanel.Width(), rectNavPanel.Height()), (pComposited != NULL) ? pComposited : pDIBData, &bmInfo,
+								  CPoint(xDest - rectNavPanel.left, yDest - rectNavPanel.top), CSize(pCurrentImage->DIBWidth(), pCurrentImage->DIBHeight()),
 								  *m_pNavPanel, CPoint(-rectNavPanel.left, -rectNavPanel.top), m_fCurrentBlendingFactorNavPanel);
+			delete[] pComposited;
 			screenDC.BitBlt(rectNavPanel.left, rectNavPanel.top, rectNavPanel.Width(), rectNavPanel.Height(), *m_pMemDCAnimation, 0, 0, SRCCOPY);
 		}
 	}

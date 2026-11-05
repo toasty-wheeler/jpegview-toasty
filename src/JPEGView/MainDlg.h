@@ -382,6 +382,7 @@ private:
 	bool SaveImage(bool bFullSize);
 	bool SaveImageNoPrompt(LPCTSTR sFileName, bool bFullSize);
 	void BatchCopy();
+	void BatchRename();
 	void SetAsDefaultViewer();
 	void HandleUserCommands(uint32 virtualKeyCode);
 	void ExecuteUserCommand(CUserCommand* pUserCommand);

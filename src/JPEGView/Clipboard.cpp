@@ -2,6 +2,7 @@
 #include "Clipboard.h"
 #include "JPEGImage.h"
 #include "Helpers.h"
+#include "SettingsProvider.h"
 #include "BasicProcessing.h"
 #include "MaxImageDef.h"
 #include <gdiplus.h>
@@ -37,8 +38,16 @@ void CClipboard::CopyImageToClipboard(HWND hWnd, CJPEGImage * pImage, LPCTSTR fi
 	}
 
 	pImage->EnableDimming(false);
-	DoCopy(hWnd, pImage->DIBWidth(), pImage->DIBHeight(), pImage->DIBPixelsLastProcessed(true), pImage->IsClipboardImage() ? NULL : fileName);
+	DoCopyImage(hWnd, pImage, pImage->DIBWidth(), pImage->DIBHeight(), pImage->DIBPixelsLastProcessed(true), fileName);
 	pImage->EnableDimming(true);
+}
+
+// The clipboard DIB has no alpha channel, transparent parts get the transparency color
+void CClipboard::DoCopyImage(HWND hWnd, CJPEGImage* pImage, int nWidth, int nHeight, const void* pDIB, LPCTSTR fileName) {
+	uint32* pFlattenedDIB = pImage->HasAlphaChannel() ?
+		Helpers::CopyDIBOnColor(pDIB, nWidth, nHeight, CSettingsProvider::This().ColorTransparency()) : NULL;
+	DoCopy(hWnd, nWidth, nHeight, (pFlattenedDIB != NULL) ? pFlattenedDIB : pDIB, pImage->IsClipboardImage() ? NULL : fileName);
+	delete[] pFlattenedDIB;
 }
 
 void CClipboard::CopyFullImageToClipboard(HWND hWnd, CJPEGImage * pImage, const CImageProcessingParams& procParams,
@@ -59,7 +68,9 @@ void CClipboard::CopyFullImageToClipboard(HWND hWnd, CJPEGImage * pImage, const 
 
 	pImage->EnableDimming(false);
 	void* pDIB = pImage->GetDIB(pImage->OrigSize(), clipRect.Size(), clipRect.TopLeft(), procParams, eFlags);
-	DoCopy(hWnd, clipRect.Width(), clipRect.Height(), pDIB, pImage->IsClipboardImage() ? NULL : fileName);
+	if (pDIB != NULL) {
+		DoCopyImage(hWnd, pImage, clipRect.Width(), clipRect.Height(), pDIB, fileName);
+	}
 	pImage->EnableDimming(true);
 }
 

@@ -370,6 +370,13 @@ bool CSaveImage::SaveImage(LPCTSTR sFileName, CJPEGImage * pImage, const CImageP
 		return false;
 	}
 
+	// transparent parts get the transparency color, the saved formats are written without alpha channel
+	uint32* pFlattenedDIB = pImage->HasAlphaChannel() ?
+		Helpers::CopyDIBOnColor(pDIB32bpp, imageSize.cx, imageSize.cy, CSettingsProvider::This().ColorTransparency()) : NULL;
+	if (pFlattenedDIB != NULL) {
+		pDIB32bpp = pFlattenedDIB;
+	}
+
 	uint32 nSizeLinePadded = Helpers::DoPadding(imageSize.cx*3, 4);
 	uint32 nSizeBytes = nSizeLinePadded*imageSize.cy;
 	char* pDIB24bpp = new char[nSizeBytes];
@@ -410,6 +417,8 @@ bool CSaveImage::SaveImage(LPCTSTR sFileName, CJPEGImage * pImage, const CImageP
 
 	delete[] pDIB24bpp;
 	pDIB24bpp = NULL;
+	delete[] pFlattenedDIB;
+	pFlattenedDIB = NULL;
 
 	// Create database entry to avoid processing image again
 	if (bSuccess && bCreateParameterDBEntry && CSettingsProvider::This().CreateParamDBEntryOnSave()) {

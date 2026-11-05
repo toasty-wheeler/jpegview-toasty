@@ -46,6 +46,8 @@ public:
 
 	// Convert from GDI+ 32 bpp RGBA format to 32 bpp BGRA DIB format
 	static void* ConvertGdiplus32bppRGB(int nWidth, int nHeight, int nStride, const void* pGdiplusPixels);
+	// Convert from GDI+ 32 bpp ARGB format to 32 bpp BGRA DIB format, keeping the alpha channel
+	static void* ConvertGdiplus32bppARGB(int nWidth, int nHeight, int nStride, const void* pGdiplusPixels);
 
 	// Copy rectangular pixel block from source to target 32 bpp bitmap. The target bitmap is allocated
 	// if the 'pTarget' parameter is NULL. Note that size of source and target rect must match.
@@ -144,8 +146,14 @@ public:
 	// pPixels: Source image
 	// nChannels: Number of channels (bytes) in source image, must be 3 or 4
 	// Returns a 32 bpp BGRA DIB of size 'clippedTargetSize'
-	static void* PointSample(CSize fullTargetSize, CPoint fullTargetOffset, CSize clippedTargetSize, 
+	static void* PointSample(CSize fullTargetSize, CPoint fullTargetOffset, CSize clippedTargetSize,
 		CSize sourceSize, const void* pPixels, int nChannels);
+
+	// Sets the alpha channel of a resampled 32 bpp BGRA DIB (size clippedTargetSize) by point sampling the alpha of the
+	// original 4 channel pixels, the RGB values stay. The high quality resampling filters only RGB.
+	// Returns false if the parameters are invalid.
+	static bool RestoreAlphaChannel(CSize fullTargetSize, CPoint fullTargetOffset, CSize clippedTargetSize,
+		CSize sourceSize, const void* pSourcePixels, void* pResampledDIB);
 
 	// Rotate 32 or 24 bpp BGR(A) image and resample using point sampling (i.e. no interpolation). Rotation is around image center.
 	// Notice that the A channel is kept unchanged for 32 bpp images.

@@ -971,4 +971,38 @@ int GetWindowsVersion() {
 	return osvi.dwMajorVersion * 100 + osvi.dwMinorVersion;
 }
 
+uint32* CopyDIBOnBackground(const void* pDIBPixels, int nWidth, int nHeight, EBackgroundMode eMode, int nScreenX, int nScreenY) {
+	if (pDIBPixels == NULL || nWidth <= 0 || nHeight <= 0) {
+		return NULL;
+	}
+	uint32* pCopy = new(std::nothrow) uint32[nWidth * nHeight];
+	if (pCopy == NULL) {
+		return NULL;
+	}
+	const uint32* pSource = (const uint32*)pDIBPixels;
+	for (int y = 0; y < nHeight; y++) {
+		const uint32* pSourceRow = pSource + y * nWidth;
+		uint32* pTargetRow = pCopy + y * nWidth;
+		for (int x = 0; x < nWidth; x++) {
+			pTargetRow[x] = CompositePixelOnBackground(pSourceRow[x], eMode, nScreenX + x, nScreenY + y);
+		}
+	}
+	return pCopy;
+}
+
+uint32* CopyDIBOnColor(const void* pDIBPixels, int nWidth, int nHeight, COLORREF color) {
+	if (pDIBPixels == NULL || nWidth <= 0 || nHeight <= 0) {
+		return NULL;
+	}
+	uint32* pCopy = new(std::nothrow) uint32[nWidth * nHeight];
+	if (pCopy == NULL) {
+		return NULL;
+	}
+	const uint32* pSource = (const uint32*)pDIBPixels;
+	for (int i = 0; i < nWidth * nHeight; i++) {
+		pCopy[i] = AlphaBlendBackground(pSource[i], color) | 0xFF000000;
+	}
+	return pCopy;
+}
+
 }

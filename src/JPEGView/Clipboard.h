@@ -29,5 +29,6 @@ private:
 	CClipboard(void);
 
 	static void DoCopy(HWND hWnd, int nWidth, int nHeight, const void* pSourceImageDIB32, LPCTSTR fileName);
+	static void DoCopyImage(HWND hWnd, CJPEGImage* pImage, int nWidth, int nHeight, const void* pDIB, LPCTSTR fileName);
 	static void DoCopyFileNameText(HWND hWnd, LPCTSTR fileName);
 };

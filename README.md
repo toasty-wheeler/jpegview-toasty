@@ -4,7 +4,7 @@
 
 # JPEGView - Image Viewer and Editor
 
-> **This is a fork of [sylikc/jpegview](https://github.com/sylikc/jpegview).** It adds faster loading, a settings window, a modern navigation bar with thumbnails, touchpad and touch gestures, and support for FLIR thermal images. See [Changes in this fork](#changes-in-this-fork) and [Credits and licenses](#credits-and-licenses). Everything below that section is the original project description.
+> **This is a fork of [sylikc/jpegview](https://github.com/sylikc/jpegview).** It adds faster loading, a settings window, a modern navigation bar with thumbnails, touchpad and touch gestures, support for FLIR thermal images, and background switching and batch rename from the [famomatic fork](https://github.com/famomatic/jpegview). See [Changes in this fork](#changes-in-this-fork) and [Credits and licenses](#credits-and-licenses). Everything below that section is the original project description.
 
 ## Changes in this fork
 
@@ -42,7 +42,14 @@
 
 ![FLIR thermal image with the navigator in the top right corner: the photo of the visible light camera, the temperature under the mouse cursor and the lowest and highest temperature](docs/screenshots/flir-thermal.jpg)
 
+### Ported from the famomatic fork
+Two features of [famomatic/jpegview](https://github.com/famomatic/jpegview), adapted to this fork's code and Visual Studio build:
+* **Background switching for transparent images:** black, white or checkerboard behind transparent PNG, WebP, JXL, AVIF, HEIF, QOI, GIF, TGA and PSD images. Press **B** to cycle through them, or use the "Background for transparent images" submenu of the context menu. Setting: `BackgroundMode`. The transparency is kept when the image loads instead of being filled in, and is blended onto the background when painting. Saving in a format without transparency, copying and printing still use `TransparencyColor`, as before. Transparent images now also open faster, because the per-pixel blending at load time is gone.
+* **Batch rename:** "Batch rename..." in the context menu renames the image files of the current folder with a pattern of `{name}`, `{ext}`, `{num}`, `{date}` and `{time}` (EXIF date of JPEGs, otherwise the file date). The new name of every file is shown while typing, invalid or duplicate names are refused, and the files are renamed over temporary names with a rollback if anything fails. The viewer stays on the current image under its new name.
+
 ## Credits and licenses
+
+* **[famomatic/jpegview](https://github.com/famomatic/jpegview)**, the JPEGView fork by famomatic, **GPL-2.0 or later**. Origin of the background switching for transparent images and the batch rename dialog, ported to this fork with changes (see the source files `BatchRenameDlg.cpp` and `Helpers.h`).
 
 * **[JPEGView](https://github.com/sylikc/jpegview)** by Kevin M (sylikc) and the original [JPEGView](https://sourceforge.net/projects/jpegview/) by David Kleiner. **GPL-2.0 or later** (see [LICENSE.txt](LICENSE.txt) and [COPYING.txt](COPYING.txt)). This fork is distributed under the same license.
 * **[FlirImageExtractor](https://github.com/fclairec/FlirImageExtractor)** (fclairec, forked from [nationaldronesau/FlirImageExtractor](https://github.com/nationaldronesau/FlirImageExtractor)), **MIT License**, Copyright (c) 2020 National Drones. Reference for the layout of the FLIR data and the conversion of raw sensor values to temperatures. No code is copied, the reading and conversion are written anew in C++.

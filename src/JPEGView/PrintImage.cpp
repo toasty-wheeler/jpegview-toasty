@@ -4,6 +4,7 @@
 #include "BasicProcessing.h"
 #include "MaxImageDef.h"
 #include "Helpers.h"
+#include "SettingsProvider.h"
 #include "PrintDlg.h"
 #include "PrintParameters.h"
 
@@ -114,6 +115,12 @@ bool CPrintImage::DoPrint(HDC hPrinterDC, CPrintParameters* pPrintParameters, CJ
 			pImage->EnableDimming(false);
 			void* pDIBData = pImage->GetDIB(fullTargetSize, dibSize, offset, procParams, eFlags);
 			pImage->EnableDimming(true);
+			// transparent parts are printed in the transparency color
+			uint32* pFlattenedDIB = (pDIBData != NULL && pImage->HasAlphaChannel()) ?
+				Helpers::CopyDIBOnColor(pDIBData, dibSize.cx, dibSize.cy, CSettingsProvider::This().ColorTransparency()) : NULL;
+			if (pFlattenedDIB != NULL) {
+				pDIBData = pFlattenedDIB;
+			}
 
 			if (pDIBData != NULL) {
 				BITMAPINFO bmInfo{ 0 };
@@ -133,6 +140,7 @@ bool CPrintImage::DoPrint(HDC hPrinterDC, CPrintParameters* pPrintParameters, CJ
 				}
 				bSuccess = true;
 			}
+			delete[] pFlattenedDIB;
 
 			::EndPage(hPrinterDC);
 		}

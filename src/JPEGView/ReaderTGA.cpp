@@ -342,18 +342,11 @@ CJPEGImage* CReaderTGA::ReadTgaImage(LPCTSTR strFileName, COLORREF backgroundCol
 		CBasicProcessing::MirrorVInplace(width, height, targetStride, pImageData);
 	}
 
-	// 32 bit image - check alpha channel for validity and multiply RGB with alpha if valid
+	// 32 bit image - check alpha channel for validity, a valid alpha channel is kept (blended onto the selected background when painting)
 	if (targetChannels == 4)
 	{
 		uint32* pImage32 = (uint32*)pImageData;
-		if (IsAlphaChannelValid(width, height, (uint32*)pImageData))
-		{
-			for (int i = 0; i < width*height; i++)
-			{
-				*pImage32++ = Helpers::AlphaBlendBackground(*pImage32, backgroundColor | ALPHA_OPAQUE);
-			}
-		}
-		else
+		if (!IsAlphaChannelValid(width, height, (uint32*)pImageData))
 		{
 			// no valid alpha channel - set all A to 255
 			for (int i = 0; i < width*height; i++)

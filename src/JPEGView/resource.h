@@ -293,6 +293,24 @@
 #define IDM_PAN_RIGHT	15202		// :KeyMap: pan right
 #define IDM_PAN_LEFT	15203		// :KeyMap: pan left
 #define IDM_CONTEXT_MENU	16000		// :KeyMap: display context menu
+// background switching and batch rename are ported from the famomatic fork (https://github.com/famomatic/jpegview)
+#define IDM_TOGGLE_BACKGROUND	17350		// :KeyMap: switch the background of transparent images (black, white, checkerboard)
+#define IDM_BACKGROUND_BLACK	17351
+#define IDM_BACKGROUND_WHITE	17352
+#define IDM_BACKGROUND_CHECKERBOARD	17353
+#define IDM_BATCH_RENAME	17400		// :KeyMap: rename image files of the current folder with a name pattern
+
+// batch rename dialog (famomatic fork)
+#define IDD_BATCH_RENAME	8100
+#define IDC_BR_LIST	8101
+#define IDC_BR_PATTERN	8102
+#define IDC_BR_PATTERN_LBL	8103
+#define IDC_BR_PREVIEW	8104
+#define IDC_BR_RENAME	8105
+#define IDC_BR_CANCEL	8106
+#define IDC_BR_STARTNUM	8107
+#define IDC_BR_STARTNUM_LBL	8108
+#define IDC_BR_TOKENS	8109
 
 #define IDM_CROP_SEL		20000
 #define IDM_LOSSLESS_CROP_SEL 20010

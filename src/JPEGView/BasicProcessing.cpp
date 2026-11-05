@@ -827,6 +827,23 @@ void* CBasicProcessing::ConvertGdiplus32bppRGB(int nWidth, int nHeight, int nStr
 	return pNewDIB;
 }
 
+void* CBasicProcessing::ConvertGdiplus32bppARGB(int nWidth, int nHeight, int nStride, const void* pGdiplusPixels) {
+	if (pGdiplusPixels == NULL || nWidth*4 > abs(nStride)) {
+		return NULL;
+	}
+	uint32* pNewDIB = new(std::nothrow) uint32[nWidth * nHeight];
+	if (pNewDIB == NULL) return NULL;
+	uint32* pTgt = pNewDIB;
+	const uint8* pSrc = (const uint8*)pGdiplusPixels;
+	for (int j = 0; j < nHeight; j++) {
+		// GDI+ 32bppARGB has the BGRA byte order of a DIB, the alpha is kept
+		memcpy(pTgt, pSrc, nWidth * sizeof(uint32));
+		pTgt += nWidth;
+		pSrc += nStride;
+	}
+	return pNewDIB;
+}
+
 void* CBasicProcessing::CopyRect32bpp(void* pTarget, const void* pSource,  CSize targetSize, CRect targetRect,
 									  CSize sourceSize, CRect sourceRect) {
 	if (pSource == NULL || sourceRect.Size() != targetRect.Size() || 
@@ -923,6 +940,44 @@ void* CBasicProcessing::PointSample(CSize fullTargetSize, CPoint fullTargetOffse
 		nCurY += nIncrementY;
 	}
 	return pDIB;
+}
+
+bool CBasicProcessing::RestoreAlphaChannel(CSize fullTargetSize, CPoint fullTargetOffset, CSize clippedTargetSize,
+	CSize sourceSize, const void* pSourcePixels, void* pResampledDIB) {
+	if (fullTargetSize.cx < 1 || fullTargetSize.cy < 1 ||
+		clippedTargetSize.cx < 1 || clippedTargetSize.cy < 1 ||
+		fullTargetOffset.x < 0 || fullTargetOffset.y < 0 ||
+		clippedTargetSize.cx + fullTargetOffset.x > fullTargetSize.cx ||
+		clippedTargetSize.cy + fullTargetOffset.y > fullTargetSize.cy ||
+		pSourcePixels == NULL || pResampledDIB == NULL) {
+		return false;
+	}
+
+	// same sampling positions as PointSample()
+	uint32 nIncrementX, nIncrementY;
+	if (fullTargetSize.cx <= sourceSize.cx) {
+		nIncrementX = (uint32)(sourceSize.cx << 16)/fullTargetSize.cx + 1;
+		nIncrementY = (uint32)(sourceSize.cy << 16)/fullTargetSize.cy + 1;
+	} else {
+		nIncrementX = (fullTargetSize.cx == 1) ? 0 : (uint32)((65536*(uint32)(sourceSize.cx - 1) + 65535)/(fullTargetSize.cx - 1));
+		nIncrementY = (fullTargetSize.cy == 1) ? 0 : (uint32)((65536*(uint32)(sourceSize.cy - 1) + 65535)/(fullTargetSize.cy - 1));
+	}
+
+	const uint8* pSrc = NULL;
+	uint8* pDst = (uint8*)pResampledDIB;
+	uint32 nCurY = fullTargetOffset.y*nIncrementY;
+	uint32 nStartX = fullTargetOffset.x*nIncrementX;
+	for (int j = 0; j < clippedTargetSize.cy; j++) {
+		pSrc = (const uint8*)pSourcePixels + sourceSize.cx * 4 * (nCurY >> 16);
+		uint32 nCurX = nStartX;
+		for (int i = 0; i < clippedTargetSize.cx; i++) {
+			pDst[i*4 + 3] = pSrc[(nCurX >> 16)*4 + 3]; // only the alpha byte, the filtered RGB stays
+			nCurX += nIncrementX;
+		}
+		pDst += clippedTargetSize.cx*4;
+		nCurY += nIncrementY;
+	}
+	return true;
 }
 
 static void RotateInplace(double& dX, double& dY, double dAngle) {

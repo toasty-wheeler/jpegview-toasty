@@ -26,6 +26,7 @@
 #include "TimerEventIDs.h"
 #include "FileOpenDialog.h"
 #include "BatchCopyDlg.h"
+#include "BatchRenameDlg.h"
 #include "FileExtensionsDlg.h"
 #include "FileExtensionsRegistry.h"
 #include "ManageOpenWithDlg.h"
@@ -561,9 +562,17 @@ LRESULT CMainDlg::OnPaint(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM /*lParam*/, B
 		// Paint the DIB
 		if (pDIBData != NULL) {
 			BITMAPINFO bmInfo{ 0 };
-			CPoint ptDIBStart = HelpersGUI::DrawDIB32bppWithBlackBorders(dc, bmInfo, pDIBData, backBrush, m_clientRect, clippedSize, m_DIBOffsets);
+			// Transparent images are blended onto the selected background (black, white or checkerboard)
+			uint32* pComposited = NULL;
+			if (m_pCurrentImage->HasAlphaChannel()) {
+				pComposited = Helpers::CopyDIBOnBackground(pDIBData, clippedSize.cx, clippedSize.cy, CSettingsProvider::This().BackgroundMode(),
+					(m_clientRect.Width() - clippedSize.cx) / 2 + m_DIBOffsets.x, (m_clientRect.Height() - clippedSize.cy) / 2 + m_DIBOffsets.y);
+			}
+			void* pDIBToPaint = (pComposited != NULL) ? pComposited : pDIBData;
+			CPoint ptDIBStart = HelpersGUI::DrawDIB32bppWithBlackBorders(dc, bmInfo, pDIBToPaint, backBrush, m_clientRect, clippedSize, m_DIBOffsets);
 			// The DIB is also blitted into the memory DCs of the panels
-			memDCMgr.BlitImageToMemDC(pDIBData, &bmInfo, ptDIBStart, m_pNavPanelCtl->CurrentBlendingFactor());
+			memDCMgr.BlitImageToMemDC(pDIBToPaint, &bmInfo, ptDIBStart, m_pNavPanelCtl->CurrentBlendingFactor());
+			delete[] pComposited;
 		}
 		if (m_bZoomMode) m_offsets = unlimitedOffsets;
 	}
@@ -649,7 +658,13 @@ void CMainDlg::PaintToDC(CDC& dc) {
 				CreateDefaultProcessingFlags());
 		if (pDIBData != NULL) {
 			BITMAPINFO bmInfo{ 0 };
-			CPoint ptDIBStart = HelpersGUI::DrawDIB32bppWithBlackBorders(dc, bmInfo, pDIBData, backBrush, m_clientRect, clippedSize, CPoint(0, 0));
+			uint32* pComposited = NULL;
+			if (pCurrentImage->HasAlphaChannel()) {
+				pComposited = Helpers::CopyDIBOnBackground(pDIBData, clippedSize.cx, clippedSize.cy, CSettingsProvider::This().BackgroundMode(),
+					(m_clientRect.Width() - clippedSize.cx) / 2, (m_clientRect.Height() - clippedSize.cy) / 2);
+			}
+			CPoint ptDIBStart = HelpersGUI::DrawDIB32bppWithBlackBorders(dc, bmInfo, (pComposited != NULL) ? pComposited : pDIBData, backBrush, m_clientRect, clippedSize, CPoint(0, 0));
+			delete[] pComposited;
 		}
 
 		CRect imageProcessingArea = m_pImageProcPanelCtl->PanelRect();
@@ -1180,6 +1195,9 @@ LRESULT CMainDlg::OnKeyDown(UINT /*uMsg*/, WPARAM wParam, LPARAM /*lParam*/, BOO
 		ExecuteCommand(IDM_HELP);
 	} else {
 		int nCommand = m_pKeyMap->GetCommandIdForKey((int)wParam, bAlt, bCtrl, bShift);
+		if (nCommand <= 0 && wParam == 'B' && !bAlt && !bCtrl && !bShift) {
+			nCommand = IDM_TOGGLE_BACKGROUND; // also works with key map files older than background switching
+		}
 		if (nCommand > 0) {
 			bHandled = true;
 			ExecuteCommand(nCommand);
@@ -1461,6 +1479,20 @@ LRESULT CMainDlg::OnContextMenu(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM lParam,
 		::DeleteMenu(hMenuTrackPopup, 0, MF_BYPOSITION);
 	}
 
+	// Appended at the end, the code above addresses submenus by position.
+	// Background of transparent images and batch rename (from the famomatic fork)
+	HMENU hMenuBackground = ::CreatePopupMenu();
+	::AppendMenu(hMenuBackground, MF_STRING, IDM_BACKGROUND_BLACK, CNLS::GetString(_T("Black")));
+	::AppendMenu(hMenuBackground, MF_STRING, IDM_BACKGROUND_WHITE, CNLS::GetString(_T("White")));
+	::AppendMenu(hMenuBackground, MF_STRING, IDM_BACKGROUND_CHECKERBOARD, CNLS::GetString(_T("Checkerboard")));
+	Helpers::EBackgroundMode eBackgroundMode = CSettingsProvider::This().BackgroundMode();
+	::CheckMenuRadioItem(hMenuBackground, IDM_BACKGROUND_BLACK, IDM_BACKGROUND_CHECKERBOARD,
+		(eBackgroundMode == Helpers::BGM_White) ? IDM_BACKGROUND_WHITE : (eBackgroundMode == Helpers::BGM_Checkerboard) ? IDM_BACKGROUND_CHECKERBOARD : IDM_BACKGROUND_BLACK, MF_BYCOMMAND);
+	::AppendMenu(hMenuTrackPopup, MF_SEPARATOR, 0, NULL);
+	::AppendMenu(hMenuTrackPopup, MF_STRING | MF_POPUP, (UINT_PTR)hMenuBackground, CNLS::GetString(_T("Background for transparent images")));
+	::AppendMenu(hMenuTrackPopup, MF_STRING | ((m_pCurrentImage == NULL || m_pCurrentImage->IsClipboardImage() || m_bMovieMode) ? MF_GRAYED : 0),
+		IDM_BATCH_RENAME, CNLS::GetString(_T("Batch rename...")));
+
 	int nMenuCmd = TrackPopupMenu(CPoint(nX, nY), hMenuTrackPopup);
 	ExecuteCommand(nMenuCmd);
 
@@ -1605,6 +1637,9 @@ void CMainDlg::ExecuteCommand(int nCommand) {
 			if (::IsClipboardFormatAvailable(CF_DIB)) {
 				GotoImage(POS_Clipboard);
 			}
+			break;
+		case IDM_BATCH_RENAME:
+			BatchRename();
 			break;
 		case IDM_BATCH_COPY:
 			if (m_pCurrentImage != NULL) {
@@ -2069,6 +2104,21 @@ void CMainDlg::ExecuteCommand(int nCommand) {
 		case IDM_ZOOM_MODE:
 			m_bZoomModeOnLeftMouse = !m_bZoomModeOnLeftMouse;
 			break;
+		case IDM_TOGGLE_BACKGROUND:
+		case IDM_BACKGROUND_BLACK:
+		case IDM_BACKGROUND_WHITE:
+		case IDM_BACKGROUND_CHECKERBOARD:
+			{
+				Helpers::EBackgroundMode eMode = CSettingsProvider::This().BackgroundMode();
+				if (nCommand == IDM_TOGGLE_BACKGROUND) {
+					eMode = (eMode == Helpers::BGM_Black) ? Helpers::BGM_White : (eMode == Helpers::BGM_White) ? Helpers::BGM_Checkerboard : Helpers::BGM_Black;
+				} else {
+					eMode = (nCommand == IDM_BACKGROUND_WHITE) ? Helpers::BGM_White : (nCommand == IDM_BACKGROUND_CHECKERBOARD) ? Helpers::BGM_Checkerboard : Helpers::BGM_Black;
+				}
+				CSettingsProvider::This().SetBackgroundMode(eMode);
+				this->Invalidate(FALSE);
+				break;
+			}
 		case IDM_AUTO_ZOOM_FIT_NO_ZOOM:
 		case IDM_AUTO_ZOOM_FILL_NO_ZOOM:
 		case IDM_AUTO_ZOOM_FIT:
@@ -2445,6 +2495,25 @@ bool CMainDlg::SaveImageNoPrompt(LPCTSTR sFileName, bool bFullSize) {
 			CNLS::GetString(_T("Error writing file to disk!")), MB_ICONSTOP | MB_OK);
 		return false;
 	}
+}
+
+void CMainDlg::BatchRename() {
+	if (m_bMovieMode || m_pCurrentImage == NULL || m_pCurrentImage->IsClipboardImage() || m_pFileList->Current() == NULL) {
+		return;
+	}
+	MouseOn();
+
+	CString sCurrentFile = m_pFileList->Current();
+	CBatchRenameDlg dlgBatchRename(*m_pFileList);
+	if (dlgBatchRename.DoModal() == IDOK) {
+		// the current image is renamed too, read the folder again and stay on it
+		CString sNewCurrentFile = dlgBatchRename.GetNewFileName(sCurrentFile);
+		m_pFileList->Reload(sNewCurrentFile);
+		m_pDirectoryWatcher->SetCurrentFile(CurrentFileName(false));
+		UpdateWindowTitle();
+		UpdateThumbnailStrip();
+	}
+	this->Invalidate(FALSE);
 }
 
 void CMainDlg::BatchCopy() {

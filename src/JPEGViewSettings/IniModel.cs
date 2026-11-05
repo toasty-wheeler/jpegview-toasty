@@ -279,6 +279,7 @@ namespace JPEGViewSettings
             ["DeleteConfirmation"] = C(false, "Never", "OnlyWhenNoRecycleBin", "Always"),
             ["DefaultSaveFormat"] = C(false, "jpg", "bmp", "png", "tif", "webp"),
             ["IniEditor"] = C(true, "%exepath%JPEGViewSettings.exe", "notepad", "system"),
+            ["BackgroundMode"] = C(false, "Black", "White", "Checkerboard"),
             ["DisplayFullSizeRAW"] = C(false, "0", "1", "2", "3"),
             ["DisplayMonitor"] = C(true, "-1", "0", "1", "2"),
             ["CPUCoresUsed"] = C(false, "0", "1", "2", "3", "4"),

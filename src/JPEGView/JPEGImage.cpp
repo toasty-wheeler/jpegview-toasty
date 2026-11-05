@@ -69,9 +69,22 @@ CJPEGImage::CJPEGImage(int nWidth, int nHeight, void* pPixels, void* pEXIFData, 
 	: m_rotationParams{ 0 },
 	m_fColorCorrectionFactorsNull{ 0 }
 {
+	m_bHasAlpha = false;
 	if (nChannels == 3 || nChannels == 4) {
 		m_pOrigPixels = pPixels;
 		m_nOriginalChannels = nChannels;
+		// transparency is kept and blended onto the selected background when painting.
+		// An alpha channel that is zero everywhere (e.g. 32 bpp BMPs) is unused, such images are opaque.
+		if (nChannels == 4 && pPixels != NULL) {
+			const uint32* pPixel = (const uint32*)pPixels;
+			bool bSomeTransparent = false, bSomeVisible = false;
+			for (int i = 0; i < nWidth * nHeight && !(bSomeTransparent && bSomeVisible); i++) {
+				uint32 nAlpha = pPixel[i] & 0xFF000000;
+				if (nAlpha != 0xFF000000) bSomeTransparent = true;
+				if (nAlpha != 0) bSomeVisible = true;
+			}
+			m_bHasAlpha = bSomeTransparent && bSomeVisible;
+		}
 	} else if (nChannels == 1) {
 		m_pOrigPixels = CBasicProcessing::Convert1To4Channels(nWidth, nHeight, pPixels);
 		delete[] pPixels;
@@ -613,25 +626,32 @@ void* CJPEGImage::Resample(CSize fullTargetSize, CSize clippingSize, CPoint targ
 
 	if (fullTargetSize.cx > 65535 || fullTargetSize.cy > 65535) return NULL;
 
-	if (GetProcessingFlag(eProcFlags, PFLAG_HighQualityResampling) && 
+	if (GetProcessingFlag(eProcFlags, PFLAG_HighQualityResampling) &&
 		!(eResizeType == NoResize && (filter == Filter_Downsampling_Best_Quality || filter == Filter_Downsampling_No_Aliasing))) {
+		void* pResult;
 		if (SupportsSIMD(cpu)) {
 			if (eResizeType == UpSample) {
-				return CBasicProcessing::SampleUp_HQ_SIMD(fullTargetSize, targetOffset, clippingSize, 
+				pResult = CBasicProcessing::SampleUp_HQ_SIMD(fullTargetSize, targetOffset, clippingSize,
 					CSize(m_nOrigWidth, m_nOrigHeight), m_pOrigPixels, m_nOriginalChannels, ToSIMDArchitecture(cpu));
 			} else {
-				return CBasicProcessing::SampleDown_HQ_SIMD(fullTargetSize, targetOffset, clippingSize,
+				pResult = CBasicProcessing::SampleDown_HQ_SIMD(fullTargetSize, targetOffset, clippingSize,
 					CSize(m_nOrigWidth, m_nOrigHeight), m_pOrigPixels, m_nOriginalChannels, dSharpen, filter, ToSIMDArchitecture(cpu));
 			}
 		} else {
 			if (eResizeType == UpSample) {
-				return CBasicProcessing::SampleUp_HQ(fullTargetSize, targetOffset, clippingSize, 
+				pResult = CBasicProcessing::SampleUp_HQ(fullTargetSize, targetOffset, clippingSize,
 					CSize(m_nOrigWidth, m_nOrigHeight), m_pOrigPixels, m_nOriginalChannels);
 			} else {
-				return CBasicProcessing::SampleDown_HQ(fullTargetSize, targetOffset, clippingSize, 
+				pResult = CBasicProcessing::SampleDown_HQ(fullTargetSize, targetOffset, clippingSize,
 					CSize(m_nOrigWidth, m_nOrigHeight), m_pOrigPixels, m_nOriginalChannels, dSharpen, filter);
 			}
 		}
+		// the high quality resampling filters only RGB, take the transparency from the original pixels
+		if (pResult != NULL && m_bHasAlpha && m_nOriginalChannels == 4) {
+			CBasicProcessing::RestoreAlphaChannel(fullTargetSize, targetOffset, clippingSize,
+				CSize(m_nOrigWidth, m_nOrigHeight), m_pOrigPixels, pResult);
+		}
+		return pResult;
 	} else {
 		bool bHasRotation = fabs(dRotation) > 1e-3;
 		if (bHasRotation) {
@@ -655,23 +675,29 @@ void* CJPEGImage::InternalResize(void* pixels, int channels, EResizeFilter filte
 	EFilterType downSamplingFilter = (filter == Resize_NoAliasing) ? Filter_Downsampling_No_Aliasing : Filter_Downsampling_Best_Quality;
 	double dSharpen = (filter == Resize_SharpenLow) ? 0.15 : (filter == Resize_SharpenMedium) ? 0.3 : 0.0;
 
+	void* pResult;
 	if (SupportsSIMD(cpu)) {
 		if (eResizeType == UpSample) {
-			return CBasicProcessing::SampleUp_HQ_SIMD(targetSize, CPoint(0, 0), targetSize,
+			pResult = CBasicProcessing::SampleUp_HQ_SIMD(targetSize, CPoint(0, 0), targetSize,
 				sourceSize, pixels, channels, ToSIMDArchitecture(cpu));
 		} else {
-			return CBasicProcessing::SampleDown_HQ_SIMD(targetSize, CPoint(0, 0), targetSize,
+			pResult = CBasicProcessing::SampleDown_HQ_SIMD(targetSize, CPoint(0, 0), targetSize,
 				sourceSize, pixels, channels, dSharpen, downSamplingFilter, ToSIMDArchitecture(cpu));
 		}
 	} else {
 		if (eResizeType == UpSample) {
-			return CBasicProcessing::SampleUp_HQ(targetSize, CPoint(0, 0), targetSize,
+			pResult = CBasicProcessing::SampleUp_HQ(targetSize, CPoint(0, 0), targetSize,
 				sourceSize, pixels, channels);
 		} else {
-			return CBasicProcessing::SampleDown_HQ(targetSize, CPoint(0, 0), targetSize,
+			pResult = CBasicProcessing::SampleDown_HQ(targetSize, CPoint(0, 0), targetSize,
 				sourceSize, pixels, channels, dSharpen, downSamplingFilter);
 		}
 	}
+	// keep the transparency when resizing the image (the filters process only RGB)
+	if (pResult != NULL && m_bHasAlpha && channels == 4) {
+		CBasicProcessing::RestoreAlphaChannel(targetSize, CPoint(0, 0), targetSize, sourceSize, pixels, pResult);
+	}
+	return pResult;
 }
 
 CPoint CJPEGImage::ConvertOffset(CSize fullTargetSize, CSize clippingSize, CPoint targetOffset) {
@@ -1269,6 +1295,15 @@ void* CJPEGImage::ApplyCorrectionLUTandLDC(const CImageProcessingParams & imageP
 	}
 	if (m_bShowGrid && pCachedTargetDIB != NULL) {
 		DrawGridLines(pCachedTargetDIB, dibSize);
+	}
+
+	// the LUT, LDC and dimming set the alpha to opaque, take it back from the resampled pixels
+	if (m_bHasAlpha && pCachedTargetDIB != NULL && pSourceDIB != NULL && pCachedTargetDIB != pSourceDIB) {
+		uint32* pTarget = (uint32*)pCachedTargetDIB;
+		const uint32* pSource = (const uint32*)pSourceDIB;
+		for (int i = 0; i < dibSize.cx * dibSize.cy; i++) {
+			pTarget[i] = (pTarget[i] & 0x00FFFFFF) | (pSource[i] & 0xFF000000);
+		}
 	}
 
 	return pCachedTargetDIB;

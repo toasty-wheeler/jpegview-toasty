@@ -409,13 +409,12 @@ CJPEGImage* PsdReader::ReadImage(LPCTSTR strFileName, bool& bOutOfMemory)
 
 		ICCProfileTransform::DoTransform(transform, pPixelData, pPixelData, nWidth, nHeight, nRowSize);
 
-		if (nChannels == 4) {
-			// Multiply alpha value into each AABBGGRR pixel
+		if (nChannels == 4 && nColorMode == MODE_CMYK) {
+			// Blend the K channel of CMYK images onto black, the result is opaque.
+			// The alpha channel of RGBA images is kept, it is blended onto the selected background when painting.
 			uint32* pImage32 = (uint32*)pPixelData;
-			// Blend K channel for CMYK images, alpha channel for RGBA images
-			COLORREF backgroundColor = nColorMode == MODE_CMYK ? 0 : CSettingsProvider::This().ColorTransparency();
 			for (int i = 0; i < nWidth * nHeight; i++)
-				*pImage32++ = Helpers::AlphaBlendBackground(*pImage32, backgroundColor);
+				*pImage32++ = Helpers::AlphaBlendBackground(*pImage32, 0) | 0xFF000000;
 		}
 
 		Image = new CJPEGImage(nWidth, nHeight, pPixelData, pEXIFData, nChannels, 0, IF_PSD, false, 0, 1, 0);

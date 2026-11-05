@@ -319,6 +319,9 @@ public:
 	// Gets the metadata for RAW camera images, NULL if none
 	CRawMetadata* GetRawMetadata() { return m_pRawMetadata; }
 
+	// True if the original pixels have transparent pixels. Their alpha is kept and blended onto the background when painting.
+	bool HasAlphaChannel() const { return m_bHasAlpha; }
+
 	// Thermal data of FLIR images, NULL if none. Ownership goes to this class.
 	void SetThermalData(CFlirThermalData* pThermalData);
 	CFlirThermalData* GetThermalData() { return m_pThermalData; }
@@ -362,6 +365,7 @@ private:
 	CEXIFReader* m_pEXIFReader;
 	CString m_sJPEGComment;
 	CFlirThermalData* m_pThermalData;
+	bool m_bHasAlpha;
 	int m_nOrigWidth, m_nOrigHeight; // these may changes by rotation
 	int m_nInitOrigWidth, m_nInitOrigHeight; // original width of image when constructed (before any rotation and crop)
 	int m_nOriginalChannels;

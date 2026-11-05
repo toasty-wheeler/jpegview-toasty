@@ -258,7 +258,11 @@ LRESULT CPrintDlg::OnPaint(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM /*lParam*/, 
 		bmInfo.bmiHeader.biBitCount = 32;
 		bmInfo.bmiHeader.biCompression = BI_RGB;
 		dc.IntersectClipRect(printableRect);
-		dc.SetDIBitsToDevice(xDest, yDest, xSize, ySize, 0, 0, 0, ySize, pDIBData, &bmInfo, DIB_RGB_COLORS);
+		// transparent parts are printed in the transparency color
+		uint32* pFlattenedDIB = m_pImage->HasAlphaChannel() ?
+			Helpers::CopyDIBOnColor(pDIBData, xSize, ySize, CSettingsProvider::This().ColorTransparency()) : NULL;
+		dc.SetDIBitsToDevice(xDest, yDest, xSize, ySize, 0, 0, 0, ySize, (pFlattenedDIB != NULL) ? pFlattenedDIB : pDIBData, &bmInfo, DIB_RGB_COLORS);
+		delete[] pFlattenedDIB;
 	}
 
 	CPen dottedPen;

@@ -312,6 +312,7 @@
     <ClCompile Include="FileExtensionsRegistry.cpp" />
     <ClCompile Include="FileList.cpp" />
     <ClCompile Include="ThumbnailCache.cpp" />
+    <ClCompile Include="BatchRenameDlg.cpp" />
     <ClCompile Include="FlirThermal.cpp" />
     <ClCompile Include="ThermalNavigator.cpp" />
     <ClCompile Include="HashCompareLPCTSTR.cpp" />
@@ -406,6 +407,7 @@
     <ClInclude Include="FileExtensionsRegistry.h" />
     <ClInclude Include="FileList.h" />
     <ClInclude Include="ThumbnailCache.h" />
+    <ClInclude Include="BatchRenameDlg.h" />
     <ClInclude Include="FlirThermal.h" />
     <ClInclude Include="ThermalNavigator.h" />
     <ClInclude Include="HashCompareLPCTSTR.h" />

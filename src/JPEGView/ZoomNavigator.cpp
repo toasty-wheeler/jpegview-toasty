@@ -3,6 +3,7 @@
 #include "JPEGImage.h"
 #include "Helpers.h"
 #include "HelpersGUI.h"
+#include "SettingsProvider.h"
 #include <math.h>
 
 // in 96 DPI
@@ -76,7 +77,13 @@ void CZoomNavigator::PaintZoomNavigator(CJPEGImage* pImage, const CRectF& visRec
 		pImage->GetThumbnailDIBTrapezoid(navigatorRect.Size(), processingParams, eFlags, *pTrapezoid) :
 		pImage->GetThumbnailDIB(navigatorRect.Size(), processingParams, eFlags);
 
-	// Paint the DIB
+	// Paint the DIB, transparent images on the selected background like in the main view
+	uint32* pComposited = (pDIBData != NULL && pImage->HasAlphaChannel()) ?
+		Helpers::CopyDIBOnBackground(pDIBData, navigatorRect.Width(), navigatorRect.Height(), CSettingsProvider::This().BackgroundMode(),
+			navigatorRect.left, navigatorRect.top) : NULL;
+	if (pComposited != NULL) {
+		pDIBData = pComposited;
+	}
 	if (pDIBData != NULL) {
 		int xDest = navigatorRect.left;
 		int yDest = navigatorRect.top;
@@ -116,6 +123,7 @@ void CZoomNavigator::PaintZoomNavigator(CJPEGImage* pImage, const CRectF& visRec
 			m_lastPanRectPoint = CPoint(-1, -1);
 		}
 	}
+	delete[] pComposited;
 }
 
 void CZoomNavigator::PaintPanRectangle(CDC& dc, const CPoint& centerPt) {
