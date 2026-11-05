@@ -8,6 +8,7 @@
 #include "SettingsProvider.h"
 #include "HelpersGUI.h"
 #include "NLS.h"
+#include <string>
 
 static int GetFileNameHeight(HDC dc) {
 	CSize size;

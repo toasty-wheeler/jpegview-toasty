@@ -814,15 +814,31 @@ CFileList* CFileList::TryCreateFileList(const CString& directory, int nNewLevel)
 void CFileList::FindFiles() {
 	m_fileList.clear();
 	if (!m_sDirectory.IsEmpty()) {
-		CFindFile fileFind;
+		// Enumerate the folder only once and filter by extension, instead of one enumeration per supported file ending.
+		// FindExInfoBasic skips the 8.3 short names and FIND_FIRST_EX_LARGE_FETCH reduces round trips (network drives, large folders).
 		LPCTSTR* allFileEndings = GetSupportedFileEndingList();
-		for (int i = 0; i < nNumEndings; i++) {
-			if (fileFind.FindFile(m_sDirectory + _T("\\*.") + allFileEndings[i])) {
-				AddToFileList(m_fileList, fileFind, allFileEndings[i]);
-				while (fileFind.FindNextFile()) {
-					AddToFileList(m_fileList, fileFind, allFileEndings[i]);
+		WIN32_FIND_DATA findData;
+		HANDLE hFind = ::FindFirstFileEx(m_sDirectory + _T("\\*"), FindExInfoBasic, &findData, FindExSearchNameMatch, NULL, FIND_FIRST_EX_LARGE_FETCH);
+		if (hFind != INVALID_HANDLE_VALUE) {
+			do {
+				if (findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
+					continue;
 				}
-			}
+				LPCTSTR sExtension = _tcsrchr(findData.cFileName, _T('.'));
+				if (sExtension == NULL) {
+					continue;
+				}
+				sExtension++;
+				for (int i = 0; i < nNumEndings; i++) {
+					if (_tcsicmp(sExtension, allFileEndings[i]) == 0) {
+						__int64 nFileSize = ((__int64)findData.nFileSizeHigh << 32) | findData.nFileSizeLow;
+						m_fileList.push_back(CFileDesc(m_sDirectory + _T('\\') + findData.cFileName,
+							&findData.ftLastWriteTime, &findData.ftCreationTime, nFileSize));
+						break;
+					}
+				}
+			} while (::FindNextFile(hFind, &findData));
+			::FindClose(hFind);
 		}
 	}
 

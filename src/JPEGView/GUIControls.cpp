@@ -4,6 +4,7 @@
 #include "HelpersGUI.h"
 #include "SettingsProvider.h"
 #include <math.h>
+#include <gdiplus.h>
 
 #define WINPROP_THIS _T("JV_THIS")
 
@@ -362,6 +363,8 @@ CButtonCtrl::CButtonCtrl(CPanel* pPanel, LPCTSTR sButtonText,
 	m_textSize = GetTextRect(m_pPanel->GetHWND(), m_sText);
 	m_bDragging = false;
 	m_bActive = false;
+	m_bRound = false;
+	m_bFlash = false;
 	m_extendedArea = CRect(0, 0, 0, 0);
 	m_dimmingFactor = 0.0f;
 }
@@ -376,6 +379,8 @@ CButtonCtrl::CButtonCtrl(CPanel* pPanel, PaintHandler* paintHandler, ButtonPress
 	m_textSize = CSize(0, 0);
 	m_bDragging = false;
 	m_bActive = false;
+	m_bRound = false;
+	m_bFlash = false;
 	m_extendedArea = CRect(0, 0, 0, 0);
 	m_dimmingFactor = 0.0f;
 }
@@ -385,6 +390,17 @@ void CButtonCtrl::SetActive(bool bActive) {
 		m_bActive = bActive;
 		if (this->m_bShow) {
 			::InvalidateRect(m_pPanel->GetHWND(), &m_position, FALSE);
+		}
+	}
+}
+
+void CButtonCtrl::SetFlash(bool bFlash) {
+	if (bFlash != m_bFlash) {
+		m_bFlash = bFlash;
+		if (this->m_bShow) {
+			CRect rect(m_position);
+			rect.InflateRect(2, 2); // include the outline
+			::InvalidateRect(m_pPanel->GetHWND(), &rect, FALSE);
 		}
 	}
 }
@@ -437,9 +453,42 @@ bool CButtonCtrl::OnMouseMove(int nX, int nY) {
 	return false;
 }
 
+void CButtonCtrl::OnPaint(CDC & dc, const CPoint& offset) {
+	if (!m_bRound) {
+		CUICtrl::OnPaint(dc, offset);
+		return;
+	}
+	// Round buttons get a dark background instead of the black outline drawn around every line, which looks blurry.
+	// Background and circle are drawn anti-aliased with GDI+, GDI circles have jagged edges.
+	HelpersGUI::SelectDefaultGUIFont(dc);
+	dc.SetBkMode(TRANSPARENT);
+	m_pos2Screen = CPoint(-offset.x, -offset.y);
+	CRect pos(m_position);
+	pos.OffsetRect(offset);
+
+	// a flashing button is darker so it stands out, the background is always there so the lines can be seen on bright images
+	float dimmingFactor = max(m_bFlash ? max(m_dimmingFactor, 0.6f) : m_dimmingFactor, 0.4f);
+	COLORREF circleColor = ((m_bDragging && m_bHighlight) || m_bFlash) ? CSettingsProvider::This().ColorHighlight() :
+		m_bActive ? CSettingsProvider::This().ColorSelected() : CSettingsProvider::This().ColorGUI();
+	float fPenWidth = (HelpersGUI::ScreenScaling >= 2 || m_bFlash) ? 2.0f : 1.0f;
+	{
+		Gdiplus::Graphics graphics(dc.m_hDC);
+		graphics.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
+		// the stroke is centered on the circle, keep it inside the button rectangle
+		float fInset = fPenWidth / 2;
+		Gdiplus::RectF circle(pos.left + fInset, pos.top + fInset, pos.Width() - 2 * fInset, pos.Height() - 2 * fInset);
+		Gdiplus::SolidBrush background(Gdiplus::Color((BYTE)(dimmingFactor * 255 + 0.5f), 0, 0, 0));
+		graphics.FillEllipse(&background, circle);
+		Gdiplus::Pen pen(Gdiplus::Color(255, GetRValue(circleColor), GetGValue(circleColor), GetBValue(circleColor)), fPenWidth);
+		graphics.DrawEllipse(&pen, circle);
+	}
+	Draw(dc, pos, false);
+}
+
 void CButtonCtrl::PreDraw(CDC & dc, CRect position) {
-	// dim the button background if requested
-	if (m_dimmingFactor > 1e-6f) {
+	// dim the button background if requested, a flashing button is always dimmed so it stands out
+	float dimmingFactor = m_bFlash ? max(m_dimmingFactor, 0.6f) : m_dimmingFactor;
+	if (dimmingFactor > 1e-6f) {
 		CDC memDCblack;
 		memDCblack.CreateCompatibleDC(dc);
 		CBitmap bitmapBlack;
@@ -450,7 +499,7 @@ void CButtonCtrl::PreDraw(CDC & dc, CRect position) {
 		BLENDFUNCTION blendFunc;
 		memset(&blendFunc, 0, sizeof(blendFunc));
 		blendFunc.BlendOp = AC_SRC_OVER;
-		blendFunc.SourceConstantAlpha = (unsigned char)(m_dimmingFactor*255 + 0.5f);
+		blendFunc.SourceConstantAlpha = (unsigned char)(dimmingFactor*255 + 0.5f);
 		blendFunc.AlphaFormat = 0;
 		dc.AlphaBlend(position.left, position.top, position.Width(), position.Height(), memDCblack, 0, 0, position.Width(), position.Height(), blendFunc);
 	}
@@ -460,25 +509,28 @@ void CButtonCtrl::Draw(CDC & dc, CRect position, bool bBlack) {
 	dc.SelectStockBrush(HOLLOW_BRUSH);
 	HPEN hPen, hOldPen;
 	HPEN hPen2 = NULL;
+	bool bHighlight = m_bHighlight || m_bFlash;
 	if (bBlack) {
 		dc.SelectStockPen(BLACK_PEN);
 	} else {
-		hPen = ::CreatePen(PS_SOLID, 1, (m_bDragging && m_bHighlight) ? CSettingsProvider::This().ColorHighlight() : m_bActive ? CSettingsProvider::This().ColorSelected() : CSettingsProvider::This().ColorGUI());
+		hPen = ::CreatePen(PS_SOLID, 1, ((m_bDragging && m_bHighlight) || m_bFlash) ? CSettingsProvider::This().ColorHighlight() : m_bActive ? CSettingsProvider::This().ColorSelected() : CSettingsProvider::This().ColorGUI());
 		hOldPen = dc.SelectPen(hPen);
 	}
-	HelpersGUI::DrawRectangle(dc, position);
+	if (!m_bRound) { // the circle of round buttons is drawn in OnPaint()
+		HelpersGUI::DrawRectangle(dc, position);
+	}
 	if (m_sText.GetLength() > 0) {
 		HelpersGUI::SelectDefaultGUIFont(dc);
 		dc.SetBkMode(TRANSPARENT);
-		dc.SetTextColor(bBlack ? 0 : m_bHighlight ? CSettingsProvider::This().ColorHighlight() : m_bActive ? CSettingsProvider::This().ColorSelected() : CSettingsProvider::This().ColorGUI());
+		dc.SetTextColor(bBlack ? 0 : bHighlight ? CSettingsProvider::This().ColorHighlight() : m_bActive ? CSettingsProvider::This().ColorSelected() : CSettingsProvider::This().ColorGUI());
 		dc.DrawText(m_sText, m_sText.GetLength(), &position, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_WORD_ELLIPSIS | DT_NOPREFIX);
 	} else if (m_paintHandler != NULL) {
-		if (m_bHighlight && !bBlack) {
+		if (bHighlight && !bBlack) {
 			hPen2 = ::CreatePen(PS_SOLID, 1, CSettingsProvider::This().ColorHighlight());
 			dc.SelectPen(hPen2);
 		}
 		dc.SetBkMode(TRANSPARENT);
-		dc.SetTextColor(bBlack ? 0 : m_bHighlight ? CSettingsProvider::This().ColorHighlight() : m_bActive ? CSettingsProvider::This().ColorSelected() : CSettingsProvider::This().ColorGUI());
+		dc.SetTextColor(bBlack ? 0 : bHighlight ? CSettingsProvider::This().ColorHighlight() : m_bActive ? CSettingsProvider::This().ColorSelected() : CSettingsProvider::This().ColorGUI());
 		m_paintHandler(m_pPaintContext, position, dc);
 	}
 	if (!bBlack) {

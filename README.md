@@ -4,6 +4,49 @@
 
 # JPEGView - Image Viewer and Editor
 
+> **This is a fork of [sylikc/jpegview](https://github.com/sylikc/jpegview).** It adds faster loading, a settings window, a modern navigation bar with thumbnails, touchpad and touch gestures, and support for FLIR thermal images. See [Changes in this fork](#changes-in-this-fork) and [Credits and licenses](#credits-and-licenses). Everything below that section is the original project description.
+
+## Changes in this fork
+
+### Faster loading
+* The folder is listed once when an image is opened, instead of once per supported file type (about 35 passes before). Opening an image in a folder of 4,000 files went from 79 ms to 62 ms; the gain is larger on slow disks and network drives.
+* A second JPEGView window no longer waits up to 250 ms for the first one unless `SingleInstance` or `SingleFullScreenInstance` is on.
+* Fixed: the global `JPEGView.ini` next to the program was never read.
+* Builds with the current Visual Studio (v145 toolset).
+
+### Settings window
+* New `JPEGViewSettings.exe` (C#, .NET Framework 4.8, included in Windows 10 and 11) replaces editing the INI file in Notepad.
+* All settings with their explanations from the INI file, grouped by section, with checkboxes, lists, color and font pickers, search, a list of everything changed from the defaults, a list of the settings that affect loading speed, and reset to default.
+* Opens from the new gear button in the navigation bar and from the "Edit user settings" menu entry when it is next to `JPEGView.exe`.
+
+### Navigation bar
+* Round buttons, drawn anti-aliased on a dark background so they are sharp on any image.
+* When a key command is used (arrow keys, Home/End, Del, rotate, ...), the bar appears and the matching button lights up.
+* The zoom mode (drag to zoom) button is replaced by a settings button.
+* Thumbnail strip below the buttons, like the photo apps of phones: the current image in the middle (larger, with its aspect ratio and a white frame) and up to 5 images on each side. Click one to show it. The thumbnails come from the thumbnail cache of Windows Explorer and are loaded in the background; only the 11 shown are kept in memory. Setting: `ShowThumbnailStrip`.
+
+### Touchpad, touch and mouse
+* Precision touchpads: pinch to zoom, two finger swipe left or right for the next or previous image (one image per swipe), two finger pan of zoomed images.
+* Two finger pinch and pan on touch screens, and for touch points injected by mouse tools.
+* Smooth scrolling (touchpads, mice with free spinning or emulated touchpad scrolling) zooms like a mouse wheel by default; set `TouchpadScrollPans=true` to pan with it instead.
+* Fixed: zooming with many small wheel steps got stuck at 100 %. Also fixed: `ZoomPausePercent` values other than 100 were treated as 100.
+
+### FLIR thermal images
+* Radiometric JPEGs of FLIR cameras (the main image is the thermal view, the photo of the visible light camera and the raw sensor values are embedded) show a navigator in the top right corner with the other view. Click it to swap the thermal view and the photo; zoom and position are kept.
+* The navigator shows the temperature under the mouse cursor and the lowest and highest temperature of the image, calculated from the raw sensor values and the calibration stored by the camera (emissivity, reflected temperature, atmosphere).
+* Opening normal images is not slowed down (only the markers at the start of a JPEG are checked). Setting: `ShowThermalData`.
+
+## Credits and licenses
+
+* **[JPEGView](https://github.com/sylikc/jpegview)** by Kevin M (sylikc) and the original [JPEGView](https://sourceforge.net/projects/jpegview/) by David Kleiner. **GPL-2.0 or later** (see [LICENSE.txt](LICENSE.txt) and [COPYING.txt](COPYING.txt)). This fork is distributed under the same license.
+* **[FlirImageExtractor](https://github.com/fclairec/FlirImageExtractor)** (fclairec, forked from [nationaldronesau/FlirImageExtractor](https://github.com/nationaldronesau/FlirImageExtractor)), **MIT License**, Copyright (c) 2020 National Drones. Reference for the layout of the FLIR data and the conversion of raw sensor values to temperatures. No code is copied, the reading and conversion are written anew in C++.
+* **[read_thermal.py](https://github.com/Nervengift/read_thermal.py)** by Nervengift, **CC0-1.0**. The project FlirImageExtractor was developed from.
+* **[Thermimage](https://github.com/gtatters/Thermimage)** by Glenn J. Tattersall, **GPL-3.0**. Origin of the raw-to-temperature formula used by the projects above.
+* **[libjpeg-turbo](https://libjpeg-turbo.org/)**, IJG License, Modified BSD License and zlib License. Already part of JPEGView; used to decode the embedded photo and the navigator previews.
+* **[libpng](http://www.libpng.org/pub/png/libpng.html)**, PNG Reference Library License version 2. Already part of JPEGView; used to decode the raw thermal data, which FLIR stores as a 16-bit PNG.
+
+# Original project description
+
 This is the official re-release of JPEGView.
 
 ## Description

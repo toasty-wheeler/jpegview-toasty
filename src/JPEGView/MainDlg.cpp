@@ -6,6 +6,7 @@
 #include "resource.h"
 #include <math.h>
 #include <limits.h>
+#include <algorithm>
 
 #include "MainDlg.h"
 #include "HelpDlg.h"
@@ -53,6 +54,9 @@
 #include "DirectoryWatcher.h"
 #include "DesktopWallpaper.h"
 #include "PrintImage.h"
+#include "ThumbnailCache.h"
+#include "ThermalNavigator.h"
+#include "FlirThermal.h"
 
 //////////////////////////////////////////////////////////////////////////////////////////////
 // Constants
@@ -68,6 +72,7 @@ static const double LDC_INC = 0.1; // increment for LDC (lighten shadows and dar
 static const int NUM_THREADS = 1; // number of readahead threads to use
 static const int READ_AHEAD_BUFFERS = 2; // number of readahead buffers to use (NUM_THREADS+1 is a good choice)
 static const int ZOOM_TIMEOUT = 200; // refinement done after this many milliseconds
+static const DWORD ZOOM_PAUSE_TIME = 400; // zooming stops this many milliseconds at the zoom pause factor (100 %)
 static const int ZOOM_TEXT_TIMEOUT = 1000; // zoom label disappears after this many milliseconds
 
 static const int DARKEN_HIGHLIGHTS = 0; // used in AdjustLDC() call
@@ -268,6 +273,18 @@ CMainDlg::CMainDlg(bool bForceFullScreen) {
 	m_bWindowBorderless = sp.WindowBorderlessOnStartup();  // unlike AlwaysOnTop, this is set early on initialize as it affects calculations of the window size, position, etc
 	m_bAlwaysOnTop = false;  // default normal window.  this will be set to true when AlwaysOnTop is toggled if set to startup in INI
 	m_bSelectZoom = false;  // this value is set when LButtonDown happens, to be read by LButtonUp
+	m_nZoomPauseTick = 0;
+	m_bTouchpadWheelSeen = false;
+	m_nLastTouchpadWheelTick = 0;
+	m_dTouchpadPanX = m_dTouchpadPanY = 0.0;
+	m_nLastSwipeTick = 0;
+	m_nSwipeX = m_nSwipeY = 0;
+	m_bSwipeDone = false;
+	m_bTouchPinch = false;
+	m_bTouchPinchFrameValid = false;
+	m_nLastTouchFrame = 0;
+	m_dPinchDistance = 0.0;
+	m_pinchCenter = CPoint(0, 0);
 
 	m_pPanelMgr = new CPanelMgr();
 	m_pZoomNavigatorCtl = NULL;
@@ -279,6 +296,10 @@ CMainDlg::CMainDlg(bool bForceFullScreen) {
 	m_pUnsharpMaskPanelCtl = NULL;
 	m_pImageProcPanelCtl = NULL;
 	m_pNavPanelCtl = NULL;
+	m_pThumbnailCache = NULL;
+	m_nGotoSteps = 1;
+	m_nCurrentFrameOverride = -1;
+	m_pThermalNavigator = new CThermalNavigator(this);
 	m_pCropCtl = new CCropCtl(this);
 	m_pKeyMap = new CKeyMap(); // routine to load the keymap, it's not as simple as just loading one file anymore, but all logic handled by CKeyMap
 	m_pPrintImage = new CPrintImage(CSettingsProvider::This().PrintMargin(), CSettingsProvider::This().DefaultPrintWidth());
@@ -295,6 +316,9 @@ CMainDlg::~CMainDlg() {
 	delete m_pCropCtl;
 	delete m_pPanelMgr; // this will delete all panel controllers and all panels
 	delete m_pKeyMap;
+	delete m_pThermalNavigator;
+	// a thumbnail extractor that hangs must not block closing, the process ends anyway
+	if (m_pThumbnailCache != NULL && m_pThumbnailCache->Stop(2000)) delete m_pThumbnailCache;
 }
 
 void CMainDlg::SetStartupInfo(LPCTSTR sStartupFile, int nAutostartSlideShow, Helpers::ESorting eSorting, Helpers::ETransitionEffect eEffect, 
@@ -347,7 +371,11 @@ LRESULT CMainDlg::OnInitDialog(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM /*lParam
 	m_pPanelMgr->AddPanelController(m_pTiltCorrectionPanelCtl);
 
 	// Create navigation panel
-	m_pNavPanelCtl = new CNavigationPanelCtl(this, m_pImageProcPanelCtl->GetPanel(), &m_bFullScreenMode);
+	if (sp.ShowThumbnailStrip()) {
+		// larger than shown, so the thumbnails are sharp also for the wider current image
+		m_pThumbnailCache = new CThumbnailCache(m_hWnd, HelpersGUI::ScaleToScreen(96));
+	}
+	m_pNavPanelCtl = new CNavigationPanelCtl(this, m_pImageProcPanelCtl->GetPanel(), &m_bFullScreenMode, m_pThumbnailCache);
 	m_pPanelMgr->AddPanelController(m_pNavPanelCtl);
 
 	// Create window button panel (on top, right)
@@ -520,6 +548,11 @@ LRESULT CMainDlg::OnPaint(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM /*lParam*/, B
 			visRectZoomNavigator = m_pZoomNavigatorCtl->GetVisibleRect(newSize, clippedSize, offsetsInImage);
 			excludedClippingRects.push_back(m_pZoomNavigatorCtl->PanelRect());
 		}
+		// Thermal navigator paints its whole rectangle
+		CRect thermalNavigatorRect = m_pThermalNavigator->GetRect();
+		if (!thermalNavigatorRect.IsRectEmpty()) {
+			excludedClippingRects.push_back(thermalNavigatorRect);
+		}
 
 		m_pPanelMgr->OnPrePaint(dc);
 		m_pPanelMgr->PrepareMemDCMgr(memDCMgr, excludedClippingRects);
@@ -544,6 +577,9 @@ LRESULT CMainDlg::OnPaint(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM /*lParam*/, B
 		CreateProcessingFlags(!m_pRotationPanelCtl->IsVisible() && !m_pTiltCorrectionPanelCtl->IsVisible(), m_bAutoContrast, false, m_bLDC, false, m_bLandscapeMode), 
 		m_pRotationPanelCtl->IsVisible() ? m_pRotationPanelCtl->GetLQRotationAngle() : 0.0, 
 		m_pTiltCorrectionPanelCtl->IsVisible() ? &trapezoid : NULL);
+
+	// paint navigator of FLIR thermal images
+	m_pThermalNavigator->OnPaint(dc);
 
 	// Display file name if enabled
 	DisplayFileName(imageProcessingArea, dc, m_dRealizedZoom);
@@ -750,6 +786,10 @@ LRESULT CMainDlg::OnLButtonDown(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM lParam,
 	this->SetCapture();
 	bool isCropping = m_pCropCtl->IsCropping();
 	CPoint pointClicked(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
+	if (!isCropping && m_pThermalNavigator->OnMouseLButtonDown(pointClicked.x, pointClicked.y)) {
+		::ReleaseCapture();
+		return 0;
+	}
 	bool bEatenByPanel = isCropping ? false : m_pPanelMgr->OnMouseLButton(MouseEvent_BtnDown, pointClicked.x, pointClicked.y);
 
 	if (!bEatenByPanel) {
@@ -856,6 +896,10 @@ LRESULT CMainDlg::OnMButtonUp(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM /*lParam*
 }
 
 LRESULT CMainDlg::OnLButtonDblClk(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM lParam, BOOL& /*bHandled*/) {
+	// the second click of a double click on the thermal navigator swaps the views again
+	if (!m_bDragging && !m_pCropCtl->IsCropping() && m_pThermalNavigator->OnMouseLButtonDown(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam))) {
+		return 0;
+	}
 	if (!m_bDragging && !m_pCropCtl->IsCropping()) {
 		if (m_pPanelMgr->OnMouseLButton(MouseEvent_BtnDblClk, GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam))) {
 			return 0;
@@ -923,6 +967,10 @@ LRESULT CMainDlg::OnMouseMove(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM lParam, B
 	} else if (!m_pPanelMgr->OnMouseMove(m_nMouseX, m_nMouseY)) {
 		m_pZoomNavigatorCtl->OnMouseMove(nOldMouseX, nOldMouseY);
 	}
+	if (m_pThermalNavigator->OnMouseMove(m_nMouseX, m_nMouseY) && !m_bDragging) {
+		::SetCursor(::LoadCursor(NULL, IDC_HAND));
+		bMouseCursorSet = true;
+	}
 	if (!m_bPanMouseCursorSet && !bMouseCursorSet) {
 		if (!m_pPanelMgr->MouseCursorCaptured()) {
 			::SetCursor(::LoadCursor(NULL, IDC_ARROW));
@@ -932,10 +980,160 @@ LRESULT CMainDlg::OnMouseMove(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM lParam, B
 	return 0;
 }
 
-LRESULT CMainDlg::OnMouseWheel(UINT /*uMsg*/, WPARAM wParam, LPARAM /*lParam*/, BOOL& /*bHandled*/) {
-	bool bCtrl = (::GetKeyState(VK_CONTROL) & 0x8000) != 0;
+// Touch pointer API of Windows 8 and later. Declared here as the project targets an older Windows version, the functions are loaded at runtime.
+namespace {
+	const DWORD JV_PT_TOUCH = 2;
+	const UINT32 JV_POINTER_FLAG_INCONTACT = 0x4;
+	struct JV_POINTER_INFO {
+		DWORD pointerType; UINT32 pointerId; UINT32 frameId; UINT32 pointerFlags; HANDLE sourceDevice; HWND hwndTarget;
+		POINT ptPixelLocation; POINT ptHimetricLocation; POINT ptPixelLocationRaw; POINT ptHimetricLocationRaw;
+		DWORD dwTime; UINT32 historyCount; INT32 InputData; DWORD dwKeyStates; UINT64 PerformanceCount; int ButtonChangeType;
+	};
+	struct JV_POINTER_TOUCH_INFO { JV_POINTER_INFO pointerInfo; UINT32 touchFlags; UINT32 touchMask; RECT rcContact; RECT rcContactRaw; UINT32 orientation; UINT32 pressure; };
+	typedef BOOL (WINAPI *GetPointerTypeProc)(UINT32 pointerId, DWORD* pointerType);
+	typedef BOOL (WINAPI *GetPointerFrameTouchInfoProc)(UINT32 pointerId, UINT32* pointerCount, JV_POINTER_TOUCH_INFO* touchInfo);
+}
+
+// Two fingers on a touch screen (or touch points injected by mouse and touchpad tools) zoom with their spread and pan with
+// their center. Single touches are left to Windows, which turns them into mouse clicks and drags.
+LRESULT CMainDlg::OnPointer(UINT uMsg, WPARAM wParam, LPARAM /*lParam*/, BOOL& bHandled) {
+	static GetPointerTypeProc getPointerType = (GetPointerTypeProc)::GetProcAddress(::GetModuleHandle(_T("user32.dll")), "GetPointerType");
+	static GetPointerFrameTouchInfoProc getPointerFrameTouchInfo = (GetPointerFrameTouchInfoProc)::GetProcAddress(::GetModuleHandle(_T("user32.dll")), "GetPointerFrameTouchInfo");
+	UINT32 nPointerId = LOWORD(wParam);
+	DWORD nPointerType = 0;
+	JV_POINTER_TOUCH_INFO touches[10];
+	UINT32 nCount = 10;
+	if (getPointerType == NULL || getPointerFrameTouchInfo == NULL || !getPointerType(nPointerId, &nPointerType) || nPointerType != JV_PT_TOUCH ||
+		!getPointerFrameTouchInfo(nPointerId, &nCount, touches) || nCount == 0) {
+		bHandled = FALSE;
+		return 0;
+	}
+
+	CPoint points[2];
+	int nInContact = 0;
+	for (UINT32 i = 0; i < nCount && nInContact < 2; i++) {
+		if (touches[i].pointerInfo.pointerFlags & JV_POINTER_FLAG_INCONTACT) {
+			points[nInContact] = touches[i].pointerInfo.ptPixelLocation;
+			ScreenToClient(&points[nInContact]);
+			nInContact++;
+		}
+	}
+	// each touch point of a frame sends its own message, the frame is processed once
+	UINT32 nFrameId = touches[0].pointerInfo.frameId;
+	if (m_bTouchPinchFrameValid && nFrameId == m_nLastTouchFrame) {
+		return 0;
+	}
+	if (!m_bTouchPinch && nInContact < 2) {
+		bHandled = FALSE; // a single finger works like the mouse
+		return 0;
+	}
+	m_nLastTouchFrame = nFrameId;
+	m_bTouchPinchFrameValid = true;
+
+	if (nInContact == 2) {
+		double dDistance = sqrt(double((points[1].x - points[0].x) * (points[1].x - points[0].x) + (points[1].y - points[0].y) * (points[1].y - points[0].y)));
+		CPoint center((points[0].x + points[1].x) / 2, (points[0].y + points[1].y) / 2);
+		if (!m_bTouchPinch) {
+			m_bTouchPinch = true;
+			if (m_bDragging) {
+				EndDragging(); // the first finger may already have started dragging as mouse
+				::ReleaseCapture();
+			}
+		} else if (m_pCurrentImage != NULL && !m_pPanelMgr->IsModalPanelShown()) {
+			if (m_dPinchDistance > 0 && dDistance > 0 && m_dZoom > 0 && !m_pUnsharpMaskPanelCtl->IsVisible()) {
+				m_nMouseX = center.x;
+				m_nMouseY = center.y;
+				PerformZoom(m_dZoom * dDistance / m_dPinchDistance, false, true, true);
+			}
+			PerformPan(center.x - m_pinchCenter.x, center.y - m_pinchCenter.y, false);
+		}
+		m_dPinchDistance = dDistance;
+		m_pinchCenter = center;
+	} else if (uMsg == WM_POINTERUP && nInContact == 0) {
+		m_bTouchPinch = false; // all fingers lifted
+		m_dPinchDistance = 0.0;
+	}
+	return 0; // handled: no mouse messages for the touch points of a pinch
+}
+
+// Precision touchpads send two finger scrolling as a stream of small wheel deltas, pinching as such deltas with Ctrl.
+// A normal mouse wheel always sends multiples of WHEEL_DELTA.
+bool CMainDlg::IsTouchpadWheel(int nDelta) {
+	DWORD nNow = ::GetTickCount();
+	if (nDelta % WHEEL_DELTA != 0) {
+		m_bTouchpadWheelSeen = true;
+		m_nLastTouchpadWheelTick = nNow;
+	}
+	return m_bTouchpadWheelSeen && nNow - m_nLastTouchpadWheelTick < 500;
+}
+
+// Moves the image with the fingers when it is larger than the window in the swipe direction. Otherwise a horizontal swipe
+// shows the next or previous image (vertical too when navigating with the mouse wheel is enabled), only one image per swipe.
+void CMainDlg::PanOrSwipe(int nDX, int nDY) {
+	if (m_pCurrentImage == NULL || m_pPanelMgr->IsModalPanelShown() || m_pCropCtl->IsCropping()) {
+		return;
+	}
+	DWORD nNow = ::GetTickCount();
+	if (nNow - m_nLastSwipeTick > 300) {
+		// a new swipe has started
+		m_nSwipeX = m_nSwipeY = 0;
+		m_bSwipeDone = false;
+	}
+	m_nLastSwipeTick = nNow;
+	m_nSwipeX += nDX;
+	m_nSwipeY += nDY;
+
+	bool bHorizontalSwipe = abs(m_nSwipeX) >= abs(m_nSwipeY);
+	bool bCanNavigate = bHorizontalSwipe ? m_virtualImageSize.cx <= m_clientRect.Width() :
+		(m_virtualImageSize.cy <= m_clientRect.Height() && CSettingsProvider::This().NavigateWithMouseWheel());
+	if (!bCanNavigate) {
+		if (PerformPan(nDX, nDY, false)) {
+			m_bSwipeDone = true; // a swipe that pans never changes the image, also not when hitting the border
+		}
+		return;
+	}
+	if (m_bSwipeDone) {
+		return;
+	}
+	int nDistance = bHorizontalSwipe ? m_nSwipeX : m_nSwipeY;
+	if (abs(nDistance) >= HelpersGUI::ScaleToScreen(80)) {
+		m_bSwipeDone = true;
+		int nCommand = (nDistance < 0) ? IDM_NEXT : IDM_PREV; // pushing the image to the left brings in the next one
+		ExecuteCommand(nCommand);
+		m_pNavPanelCtl->FlashButtonForCommand(nCommand);
+	}
+}
+
+LRESULT CMainDlg::OnMouseWheel(UINT uMsg, WPARAM wParam, LPARAM /*lParam*/, BOOL& /*bHandled*/) {
+	bool bCtrl = (::GetKeyState(VK_CONTROL) & 0x8000) != 0 || (GET_KEYSTATE_WPARAM(wParam) & MK_CONTROL) != 0;
 	int nDelta = GET_WHEEL_DELTA_WPARAM(wParam);
-	if (!bCtrl && CSettingsProvider::This().NavigateWithMouseWheel() && !m_pPanelMgr->IsModalPanelShown()) {
+	bool bHorizontal = uMsg == WM_MOUSEHWHEEL;
+	// vertical touchpad scrolling works like the mouse wheel unless it is configured to pan
+	if (bHorizontal || (CSettingsProvider::This().TouchpadScrollPans() && IsTouchpadWheel(nDelta))) {
+		if (bCtrl) {
+			// pinch to zoom
+			if (!bHorizontal && m_dZoom > 0 && !m_pUnsharpMaskPanelCtl->IsVisible()) {
+				PerformZoom(CSettingsProvider::This().MouseWheelZoomSpeed() * double(nDelta) / WHEEL_DELTA, true, m_bMouseOn, true);
+			}
+		} else {
+			// two finger scrolling, positive deltas scroll up or right, so the image moves down or left
+			double dPixelsPerDelta = HelpersGUI::ScaleToScreen(100) / (double)WHEEL_DELTA;
+			if (bHorizontal) {
+				m_dTouchpadPanX -= nDelta * dPixelsPerDelta;
+			} else {
+				m_dTouchpadPanY += nDelta * dPixelsPerDelta;
+			}
+			int nDX = (int)m_dTouchpadPanX;
+			int nDY = (int)m_dTouchpadPanY;
+			m_dTouchpadPanX -= nDX;
+			m_dTouchpadPanY -= nDY;
+			if (nDX != 0 || nDY != 0) {
+				PanOrSwipe(nDX, nDY);
+			}
+		}
+		return 0;
+	}
+	if (!bCtrl &&CSettingsProvider::This().NavigateWithMouseWheel() && !m_pPanelMgr->IsModalPanelShown()) {
 		if (nDelta < 0) {
 			GotoImage(POS_Next);
 		} else if (nDelta > 0) {
@@ -985,6 +1183,7 @@ LRESULT CMainDlg::OnKeyDown(UINT /*uMsg*/, WPARAM wParam, LPARAM /*lParam*/, BOO
 		if (nCommand > 0) {
 			bHandled = true;
 			ExecuteCommand(nCommand);
+			m_pNavPanelCtl->FlashButtonForCommand(nCommand);
 		}
 	}
 
@@ -1869,7 +2068,6 @@ void CMainDlg::ExecuteCommand(int nCommand) {
 			break;
 		case IDM_ZOOM_MODE:
 			m_bZoomModeOnLeftMouse = !m_bZoomModeOnLeftMouse;
-			m_pNavPanelCtl->GetNavPanel()->GetBtnZoomMode()->SetActive(m_bZoomModeOnLeftMouse);
 			break;
 		case IDM_AUTO_ZOOM_FIT_NO_ZOOM:
 		case IDM_AUTO_ZOOM_FILL_NO_ZOOM:
@@ -2408,6 +2606,71 @@ void CMainDlg::GotoImage(EImagePosition ePos) {
 	GotoImage(ePos, 0);
 }
 
+void CMainDlg::ToggleThermalPhoto() {
+	if (m_pCurrentImage == NULL || m_pCurrentImage->GetThermalData() == NULL || !m_pCurrentImage->GetThermalData()->HasPhoto()) {
+		return;
+	}
+	// the photo is frame 1 of the image, zoom and position stay (both views have the same size)
+	m_nCurrentFrameOverride = m_pCurrentImage->IsThermalPhotoShown() ? 0 : CFlirThermalData::PHOTO_FRAME_INDEX;
+	GotoImage(POS_Current, KEEP_PARAMETERS);
+	m_nCurrentFrameOverride = -1;
+}
+
+void CMainDlg::GotoImageOffset(int nOffset) {
+	if (nOffset != 0) {
+		m_nGotoSteps = abs(nOffset);
+		GotoImage((nOffset > 0) ? POS_Next : POS_Previous);
+		m_nGotoSteps = 1;
+	}
+}
+
+// Shows the images around the current one in the thumbnail strip and lets the cache load their thumbnails (and only theirs)
+void CMainDlg::UpdateThumbnailStrip() {
+	if (m_pThumbnailCache == NULL) {
+		return;
+	}
+	const int nEachSide = CThumbnailStripCtrl::THUMBS_EACH_SIDE;
+	std::vector<CString> before, after;
+	LPCTSTR sCurrent = (m_pCurrentImage != NULL && m_pCurrentImage->IsClipboardImage()) ? NULL : m_pFileList->Current();
+	if (sCurrent != NULL) {
+		CString sCurrentFile(sCurrent);
+		// stops at the end of the folder (without wrap around) and when coming around again in small folders
+		for (int i = 1; i <= nEachSide; i++) {
+			LPCTSTR sFile = m_pFileList->PeekNextPrev(i, true, false);
+			if (sFile == NULL || sCurrentFile == sFile || std::find(after.begin(), after.end(), CString(sFile)) != after.end()) break;
+			after.push_back(sFile);
+		}
+		for (int i = 1; i <= nEachSide; i++) {
+			LPCTSTR sFile = m_pFileList->PeekNextPrev(i, false, false);
+			if (sFile == NULL || sCurrentFile == sFile || std::find(before.begin(), before.end(), CString(sFile)) != before.end() ||
+				std::find(after.begin(), after.end(), CString(sFile)) != after.end()) break;
+			before.push_back(sFile);
+		}
+
+		std::vector<CString> files(before.rbegin(), before.rend());
+		files.push_back(sCurrentFile);
+		files.insert(files.end(), after.begin(), after.end());
+		m_pNavPanelCtl->SetThumbnailFiles(files, (int)before.size());
+
+		// load the nearest first
+		std::vector<CString> wanted;
+		wanted.push_back(sCurrentFile);
+		for (int i = 0; i < nEachSide; i++) {
+			if (i < (int)after.size()) wanted.push_back(after[i]);
+			if (i < (int)before.size()) wanted.push_back(before[i]);
+		}
+		m_pThumbnailCache->SetWantedFiles(wanted);
+	} else {
+		m_pNavPanelCtl->SetThumbnailFiles(std::vector<CString>(), -1);
+		m_pThumbnailCache->SetWantedFiles(std::vector<CString>());
+	}
+}
+
+LRESULT CMainDlg::OnThumbnailReady(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM /*lParam*/, BOOL& /*bHandled*/) {
+	m_pNavPanelCtl->OnThumbnailReady();
+	return 0;
+}
+
 void CMainDlg::GotoImage(EImagePosition ePos, int nFlags) {
 	// Timer handling for slideshows
 	if (ePos == POS_Next || ePos == POS_NextSlideShow) {
@@ -2449,8 +2712,13 @@ void CMainDlg::GotoImage(EImagePosition ePos, int nFlags) {
 			{
 				bool bGotoNextImage = true;
 				nFrameIndex = Helpers::GetFrameIndex(m_pCurrentImage, true, ePos == POS_NextAnimation, bGotoNextImage);
+				if (m_nGotoSteps > 1) {
+					// jump from the thumbnail strip, always to the first frame of the image
+					bGotoNextImage = true;
+					nFrameIndex = 0;
+				}
 				if (bGotoNextImage)
-					m_pFileList = m_pFileList->Next();
+					for (int i = 0; i < m_nGotoSteps; i++) m_pFileList = m_pFileList->Next();
 				else
 					bNoWrapAroundEdgeFrame = false; // the "next" operation didn't request going to the next image (next frame index is not current one)
 				break;
@@ -2462,7 +2730,12 @@ void CMainDlg::GotoImage(EImagePosition ePos, int nFlags) {
 			{
 				bool bGotoPrevImage;
 				nFrameIndex = Helpers::GetFrameIndex(m_pCurrentImage, false, false, bGotoPrevImage);
-				if (bGotoPrevImage) m_pFileList = m_pFileList->Prev();
+				if (m_nGotoSteps > 1) {
+					bGotoPrevImage = true;
+					nFrameIndex = 0;
+				}
+				if (bGotoPrevImage)
+					for (int i = 0; i < m_nGotoSteps; i++) m_pFileList = m_pFileList->Prev();
 				eDirection = CJPEGProvider::BACKWARD;
 				bNoWrapAroundEdgeFrame = false; // previous image at edge is not a wraparound
 				break;
@@ -2474,6 +2747,7 @@ void CMainDlg::GotoImage(EImagePosition ePos, int nFlags) {
 		case POS_Current:
 		case POS_Clipboard:
 			bCheckIfSameImage = false; // do something even when not moving iterator on filelist
+			if (m_nCurrentFrameOverride >= 0) nFrameIndex = m_nCurrentFrameOverride;
 			break;
 		case POS_AwayFromCurrent:
 			m_pFileList = m_pFileList->AwayFromCurrent();
@@ -2629,7 +2903,8 @@ bool CMainDlg::PerformZoom(double dValue, bool bExponent, bool bZoomToMouse, boo
 	m_dZoom = max(dZoomMin, min(Helpers::ZoomMax, m_dZoom));
 
 	// always try to snap to 100%... aka if within 1% of 100%, snap exactly to it
-	if (abs(m_dZoom - 1.0) < 0.01) {
+	// only when approaching it, smooth scrolling zooms in steps below 1% and could never leave 100% otherwise
+	if (abs(m_dZoom - 1.0) < 0.01 && abs(m_dZoom - 1.0) < abs(dOldZoom - 1.0)) {
 		m_dZoom = 1.0;
 	}
 
@@ -2638,13 +2913,19 @@ bool CMainDlg::PerformZoom(double dValue, bool bExponent, bool bZoomToMouse, boo
 	if (pauseAtZoom != 0) {
 		// snap to zoom factor... aka if within 1% of the set zoom factor, snap exactly to it
 		// skip it if the zoom factor is 100% since it's already checked above - save one expensive calculation of abs()
-		if (pauseAtZoom != 1 && abs(m_dZoom - pauseAtZoom) < 0.01) {
+		if (pauseAtZoom != 1 && abs(m_dZoom - pauseAtZoom) < 0.01 && abs(m_dZoom - pauseAtZoom) < abs(dOldZoom - pauseAtZoom)) {
 			m_dZoom = pauseAtZoom;
 		}
 
-		if ((dOldZoom - pauseAtZoom) * (m_dZoom - pauseAtZoom) <= 0 && m_bInZooming && !m_bZoomMode) {
-			// make a stop at 100 % (or whatever % is configured)
-			m_dZoom = pauseAtZoom;
+		if (m_bInZooming && !m_bZoomMode) {
+			if (dOldZoom != pauseAtZoom && (dOldZoom - pauseAtZoom) * (m_dZoom - pauseAtZoom) <= 0) {
+				// make a stop at 100 % (or whatever % is configured)
+				m_dZoom = pauseAtZoom;
+				m_nZoomPauseTick = ::GetTickCount();
+			} else if (dOldZoom == pauseAtZoom && ::GetTickCount() - m_nZoomPauseTick < ZOOM_PAUSE_TIME) {
+				// hold the stop for a moment, then continue even if zoom steps keep coming without a break (smooth scrolling)
+				m_dZoom = pauseAtZoom;
+			}
 		}
 	}
 
@@ -2994,6 +3275,8 @@ void CMainDlg::AfterNewImageLoaded(bool bSynchronize, bool bAfterStartup, bool n
 	m_pDirectoryWatcher->SetCurrentFile(CurrentFileName(false));
 	if (!m_bIsAnimationPlaying) m_pNavPanelCtl->HideNavPanelTemporary();
 	m_pPanelMgr->AfterNewImageLoaded();
+	UpdateThumbnailStrip();
+	m_pThermalNavigator->AfterNewImageLoaded();
 	m_pCropCtl->AbortCropping();
 	if (m_pCurrentImage != NULL) m_pCropCtl->SetImageSize(m_pCurrentImage->OrigSize()); // inform CropCtl of the image size for CropImageAR
 	m_pPrintImage->ClearOffsets();
@@ -3217,7 +3500,14 @@ void CMainDlg::EditINIFile(bool bGlobalINI) {
 	Helpers::EIniEditor iniEditor = CSettingsProvider::This().IniEditor();
 	CString command;
 	LPCTSTR argument;
-	if (iniEditor == Helpers::INI_Notepad) {
+	CString settingsApp = CString(CSettingsProvider::This().GetEXEPath()) + _T("JPEGViewSettings.exe");
+	CString quotedINIFileName;
+	if (iniEditor == Helpers::INI_Notepad && ::GetFileAttributes(settingsApp) != INVALID_FILE_ATTRIBUTES) {
+		// The settings window replaces notepad when it is installed next to JPEGView.exe, it can still open the INI as text
+		command = settingsApp;
+		quotedINIFileName.Format(_T("\"%s\""), sINIFileName);
+		argument = quotedINIFileName;
+	} else if (iniEditor == Helpers::INI_Notepad) {
 		command = _T("notepad.exe");
 		argument = sINIFileName;
 	} else if (iniEditor == Helpers::INI_System) {

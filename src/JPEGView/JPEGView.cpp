@@ -214,7 +214,9 @@ int WINAPI _tWinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/, LPTSTR lp
 	// Searches for other instances and terminates them
 	bool bFileLoadedByExistingInstance = false;
 	HANDLE hMutex = ::CreateMutex(NULL, FALSE, _T("JPVMtX2869"));
-	if (::GetLastError() == ERROR_ALREADY_EXISTS) {
+	bool bOtherInstanceRunning = ::GetLastError() == ERROR_ALREADY_EXISTS;
+	// Only hand over the file when the other instance may accept it, otherwise we just wait for nothing
+	if (bOtherInstanceRunning && (CSettingsProvider::This().SingleInstance() || CSettingsProvider::This().SingleFullScreenInstance())) {
 		::EnumWindows((WNDENUMPROC)EnumWindowsProc, 0);
 		if (_HWNDOtherInstance != NULL) {
 			// Other instance found, send the filename to be loaded to this instance
@@ -224,7 +226,7 @@ int WINAPI _tWinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/, LPTSTR lp
 			copyData.lpData = (LPVOID)(LPCTSTR)sStartupFile;
 			ULONG_PTR result = 0;
 			PDWORD_PTR resultPtr = &result;
-			LRESULT res = ::SendMessageTimeout(_HWNDOtherInstance, WM_COPYDATA, 0, (LPARAM)&copyData, 0, 250, resultPtr);
+			LRESULT res = ::SendMessageTimeout(_HWNDOtherInstance, WM_COPYDATA, 0, (LPARAM)&copyData, SMTO_ABORTIFHUNG, 250, resultPtr);
 			bFileLoadedByExistingInstance = *resultPtr == (ULONG_PTR)KEY_MAGIC;
 		}
 	}

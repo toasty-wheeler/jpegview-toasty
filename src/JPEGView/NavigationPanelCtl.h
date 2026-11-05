@@ -1,21 +1,24 @@
 #pragma once
 
 #include "PanelController.h"
+#include <vector>
 
 class CNavigationPanel;
+class CThumbnailCache;
 
 // Implements functionality of the navigation panel
 class CNavigationPanelCtl : public CPanelController
 {
 public:
 	// Sets the pFullScreenMode when corresponding button is pressed
-	CNavigationPanelCtl(CMainDlg* pMainDlg, CPanel* pImageProcPanel, bool* pFullScreenMode);
+	// With a thumbnail cache the panel shows a thumbnail strip below the buttons
+	CNavigationPanelCtl(CMainDlg* pMainDlg, CPanel* pImageProcPanel, bool* pFullScreenMode, CThumbnailCache* pThumbnailCache);
 	virtual ~CNavigationPanelCtl();
 
 	// Current blending factor with background, 1 -> fully visible, 0 -> invisible
 	float CurrentBlendingFactor() { return m_fCurrentBlendingFactorNavPanel; }
 
-	virtual bool BlendPanel() { return !m_bMouseInNavPanel; }
+	virtual bool BlendPanel() { return !m_bMouseInNavPanel && m_pFlashButton == NULL; }
 	virtual float DimFactor() { return 0.0f; }
 
 	void AdjustMaximalWidth(int nMaxWidth);
@@ -38,6 +41,12 @@ public:
 	void HideNavPanelTemporary(bool bForce = false);
 	// Shows the navigation panel when it is blended out (CurrentBlendingFactor zero)
 	void ShowNavPanelTemporary();
+	// Shows the panel and lights up the button belonging to the command (if there is one), used when the command came from the keyboard
+	void FlashButtonForCommand(int nCommand);
+	// Sets the files of the thumbnail strip in display order, nCurrent is the index of the current image
+	void SetThumbnailFiles(const std::vector<CString>& files, int nCurrent);
+	// Repaints the thumbnail strip when a thumbnail has been loaded
+	void OnThumbnailReady();
 	// Gets managed panel containing the buttons
 	CNavigationPanel* GetNavPanel() { return m_pNavPanel; }
 
@@ -55,6 +64,12 @@ private:
 	CDC* m_pMemDCAnimation;
 	HBITMAP m_hOffScreenBitmapAnimation;
 
+	// button lit up by FlashButtonForCommand(), panel stays visible until faded out even when the mouse is off
+	CButtonCtrl* m_pFlashButton;
+	bool m_bShownByKeyboard;
+
+	CButtonCtrl* GetButtonForCommand(int nCommand);
+	void EndFlash();
 	void SetMouseInNavPanel(bool value);
 	bool CheckMouseInNavPanel(int nX, int nY);
 	void DoNavPanelAnimation();
@@ -65,4 +80,5 @@ private:
 	static void OnToggleZoomFit(void* pContext, int nParameter, CButtonCtrl & sender);
 	static void OnToggleWindowMode(void* pContext, int nParameter, CButtonCtrl & sender);
 	static void OnRotate(void* pContext, int nParameter, CButtonCtrl & sender);
+	static void OnThumbnailClicked(void* pContext, int nOffset);
 };

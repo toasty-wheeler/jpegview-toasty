@@ -18,6 +18,8 @@ class CPanelMgr;
 class CEXIFDisplayCtl;
 class CImageProcPanelCtl;
 class CNavigationPanelCtl;
+class CThumbnailCache;
+class CThermalNavigator;
 class CRotationPanelCtl;
 class CTiltCorrectionPanelCtl;
 class CUnsharpMaskPanelCtl;
@@ -32,6 +34,16 @@ class CPrintImage;
 class CHelpDlg;
 
 enum EMouseEvent;
+
+// not defined for the Windows version targeted by the project
+#ifndef WM_MOUSEHWHEEL
+#define WM_MOUSEHWHEEL 0x020E
+#endif
+#ifndef WM_POINTERUPDATE
+#define WM_POINTERUPDATE 0x0245
+#define WM_POINTERDOWN 0x0246
+#define WM_POINTERUP 0x0247
+#endif
 
 // The main dialog is a full screen modal dialog with no border and no window title.
 // This dialog is the main window of the JPEGView application.
@@ -76,6 +88,10 @@ public:
 		MESSAGE_HANDLER(WM_XBUTTONDBLCLK, OnXButtonDown)
 		MESSAGE_HANDLER(WM_MOUSEMOVE, OnMouseMove)
 		MESSAGE_HANDLER(WM_MOUSEWHEEL, OnMouseWheel)
+		MESSAGE_HANDLER(WM_MOUSEHWHEEL, OnMouseWheel)
+		MESSAGE_HANDLER(WM_POINTERDOWN, OnPointer)
+		MESSAGE_HANDLER(WM_POINTERUPDATE, OnPointer)
+		MESSAGE_HANDLER(WM_POINTERUP, OnPointer)
 		MESSAGE_HANDLER(WM_KEYDOWN, OnKeyDown)
 		MESSAGE_HANDLER(WM_SYSKEYDOWN, OnSysKeyDown)
 		MESSAGE_HANDLER(WM_GETDLGCODE, OnGetDlgCode)
@@ -88,6 +104,7 @@ public:
 		MESSAGE_HANDLER(WM_DROPFILES, OnDropFiles)
 		MESSAGE_HANDLER(WM_CLOSE, OnClose)
 		MESSAGE_HANDLER(WM_LOAD_FILE_ASYNCH, OnLoadFileAsynch)
+		MESSAGE_HANDLER(WM_THUMBNAIL_READY, OnThumbnailReady)
 		MESSAGE_HANDLER(WM_COPYDATA, OnAnotherInstanceStarted) 
 		COMMAND_ID_HANDLER(IDOK, OnOK)
 		COMMAND_ID_HANDLER(IDCANCEL, OnCancel)
@@ -117,7 +134,8 @@ public:
 	LRESULT OnMButtonUp(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM /*lParam*/, BOOL& /*bHandled*/);
 	LRESULT OnXButtonDown(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM /*lParam*/, BOOL& /*bHandled*/);
 	LRESULT OnMouseMove(UINT /*uMsg*/, WPARAM wParam, LPARAM /*lParam*/, BOOL& /*bHandled*/);
-	LRESULT OnMouseWheel(UINT /*uMsg*/, WPARAM wParam, LPARAM /*lParam*/, BOOL& /*bHandled*/);
+	LRESULT OnMouseWheel(UINT uMsg, WPARAM wParam, LPARAM /*lParam*/, BOOL& /*bHandled*/);
+	LRESULT OnPointer(UINT uMsg, WPARAM wParam, LPARAM /*lParam*/, BOOL& bHandled);
 	LRESULT OnKeyDown(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM /*lParam*/, BOOL& /*bHandled*/);
 	LRESULT OnSysKeyDown(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM /*lParam*/, BOOL& /*bHandled*/);
 	LRESULT OnGetDlgCode(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM /*lParam*/, BOOL& /*bHandled*/);
@@ -130,6 +148,7 @@ public:
 	LRESULT OnDropFiles(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM lParam, BOOL& /*bHandled*/);
 	LRESULT OnAnotherInstanceStarted(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM lParam, BOOL& /*bHandled*/);
 	LRESULT OnLoadFileAsynch(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM lParam, BOOL& /*bHandled*/);
+	LRESULT OnThumbnailReady(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM /*lParam*/, BOOL& /*bHandled*/);
 	LRESULT OnClose(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM lParam, BOOL& /*bHandled*/);
 
 	// Called by main()
@@ -197,6 +216,10 @@ public:
 	void MouseOff();
 	void MouseOn();
 	void GotoImage(EImagePosition ePos);
+	// Goes nOffset images forward (positive) or backward (negative), e.g. when clicking a thumbnail
+	void GotoImageOffset(int nOffset);
+	// Swaps between the thermal view and the visible light photo of FLIR thermal images
+	void ToggleThermalPhoto();
 	void ReloadImage(bool keepParameters, bool updateWindow = true);
 	void ResetZoomTo100Percents(bool bZoomToMouse);
 	void ResetZoomToFitScreen(bool bFillWithCrop, bool bAllowEnlarge, bool bAdjustWindowSize);
@@ -314,6 +337,10 @@ private:
 	CZoomNavigatorCtl* m_pZoomNavigatorCtl;
 	CImageProcPanelCtl* m_pImageProcPanelCtl;
 	CNavigationPanelCtl* m_pNavPanelCtl;
+	CThumbnailCache* m_pThumbnailCache; // NULL if the thumbnail strip is off
+	int m_nGotoSteps; // number of images GotoImage() moves for POS_Next and POS_Previous
+	int m_nCurrentFrameOverride; // frame GotoImage() shows for POS_Current, -1 for the first
+	CThermalNavigator* m_pThermalNavigator;
 	CEXIFDisplayCtl* m_pEXIFDisplayCtl;
 	CWndButtonPanelCtl* m_pWndButtonPanelCtl;
 	CInfoButtonPanelCtl* m_pInfoButtonPanelCtl;
@@ -333,6 +360,21 @@ private:
 	bool m_bWindowBorderless;
 	bool m_bAlwaysOnTop;
 	bool m_bSelectZoom;  // keeps track of select-to-zoom mode when CTRL+SHIFT+LMouse
+
+	DWORD m_nZoomPauseTick; // when zooming stopped at the zoom pause factor
+
+	// touchpad and touch screen gestures
+	bool m_bTouchpadWheelSeen;
+	DWORD m_nLastTouchpadWheelTick;
+	double m_dTouchpadPanX, m_dTouchpadPanY; // fractions of pixels not panned yet
+	DWORD m_nLastSwipeTick;
+	int m_nSwipeX, m_nSwipeY;
+	bool m_bSwipeDone;
+	bool m_bTouchPinch; // two fingers are (or were, not all lifted yet) on the screen
+	bool m_bTouchPinchFrameValid;
+	UINT32 m_nLastTouchFrame;
+	double m_dPinchDistance;
+	CPoint m_pinchCenter;
 
 	void ExploreFile();
 	bool OpenFileWithDialog(bool bFullScreen, bool bAfterStartup);
@@ -366,6 +408,9 @@ private:
 	void ToggleMonitor();
 	CRect GetZoomTextRect(CRect imageProcessingArea);
 	void EditINIFile(bool bGlobalINI);
+	bool IsTouchpadWheel(int nDelta);
+	void PanOrSwipe(int nDX, int nDY);
+	void UpdateThumbnailStrip();
 	int GetLoadErrorAfterOpenFile();
 	void CheckIfApplyAutoFitWndToImage(bool bInInitDialog);
 	void PrefetchDIB(const CRect& clientRect);

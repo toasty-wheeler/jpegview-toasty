@@ -6,6 +6,7 @@ class CHistogram;
 class CLocalDensityCorr;
 class CEXIFReader;
 class CRawMetadata;
+class CFlirThermalData;
 enum TJSAMP;
 
 // Represents a rectangle to dim out in the image
@@ -318,6 +319,12 @@ public:
 	// Gets the metadata for RAW camera images, NULL if none
 	CRawMetadata* GetRawMetadata() { return m_pRawMetadata; }
 
+	// Thermal data of FLIR images, NULL if none. Ownership goes to this class.
+	void SetThermalData(CFlirThermalData* pThermalData);
+	CFlirThermalData* GetThermalData() { return m_pThermalData; }
+	// Gets if this is the visible light photo of a FLIR image instead of the thermal view
+	bool IsThermalPhotoShown() const;
+
 	// Converts the target offset from 'center of image' based format to pixel coordinate format 
 	static CPoint ConvertOffset(CSize fullTargetSize, CSize clippingSize, CPoint targetOffset);
 
@@ -354,6 +361,7 @@ private:
 	int m_nEXIFSize;
 	CEXIFReader* m_pEXIFReader;
 	CString m_sJPEGComment;
+	CFlirThermalData* m_pThermalData;
 	int m_nOrigWidth, m_nOrigHeight; // these may changes by rotation
 	int m_nInitOrigWidth, m_nInitOrigHeight; // original width of image when constructed (before any rotation and crop)
 	int m_nOriginalChannels;

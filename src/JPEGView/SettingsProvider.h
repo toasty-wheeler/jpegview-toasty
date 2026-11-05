@@ -5,10 +5,9 @@
 #include "UserCommand.h"
 #include "ProcessParams.h"
 #include "HashCompareLPCTSTR.h"
-#include <hash_map>
 
 
-typedef stdext::hash_map<LPCTSTR, LPCTSTR, CHashCompareLPCTSTR> IniHashMap;
+typedef LPCTSTRHashMap<LPCTSTR> IniHashMap;
 
 // INI settings
 // All settings are first searched in a file name JPEGView.ini located in User/AppData/Roaming/JPEGView
@@ -37,6 +36,8 @@ public:
 	bool ShowHistogram() { return m_bShowHistogram; }
 	bool ShowJPEGComments() { return m_bShowJPEGComments; }
 	bool ShowNavPanel() { return m_bShowNavPanel; }
+	bool ShowThumbnailStrip() { return m_bShowThumbnailStrip; }
+	bool ShowThermalData() { return m_bShowThermalData; }
 	bool ShowBottomPanel() { return m_bShowBottomPanel; }
 	bool ShowZoomNavigator() { return m_bShowZoomNavigator; }
 	bool ShowFullScreen() { return m_bShowFullScreen; }
@@ -53,6 +54,7 @@ public:
 	Helpers::ENavigationMode Navigation() { return m_eNavigation; }
 	bool NavigateWithMouseWheel() { return m_bNavigateMouseWheel; }
 	double MouseWheelZoomSpeed() { return m_dMouseWheelZoomSpeed; }
+	bool TouchpadScrollPans() { return m_bTouchpadScrollPans; }
 	Helpers::EAutoZoomMode AutoZoomMode() { return m_eAutoZoomMode; }
 	Helpers::EAutoZoomMode AutoZoomModeFullscreen() { return m_eAutoZoomModeFullscreen; }
 	int DisplayMonitor() { return m_nDisplayMonitor; }
@@ -209,6 +211,8 @@ private:
 	bool m_bShowHistogram;
 	bool m_bShowJPEGComments;
 	bool m_bShowNavPanel;
+	bool m_bShowThumbnailStrip;
+	bool m_bShowThermalData;
 	bool m_bShowBottomPanel;
 	bool m_bShowZoomNavigator;
 	bool m_bShowFullScreen;
@@ -225,6 +229,7 @@ private:
 	Helpers::ENavigationMode m_eNavigation;
 	bool m_bNavigateMouseWheel;
 	double m_dMouseWheelZoomSpeed;
+	bool m_bTouchpadScrollPans;
 	Helpers::EAutoZoomMode m_eAutoZoomMode;
 	Helpers::EAutoZoomMode m_eAutoZoomModeFullscreen;
 	int m_nDisplayMonitor;
@@ -300,7 +305,7 @@ private:
 	CString m_sGPSMapProvider;
 	bool m_bFlashWindowAlert;
 	bool m_bBeepSoundAlert;
-	int m_zoomPauseFactor;
+	double m_zoomPauseFactor;
 	bool m_bWindowBorderlessOnStartup;
 	bool m_bWindowAlwaysOnTopOnStartup;
 

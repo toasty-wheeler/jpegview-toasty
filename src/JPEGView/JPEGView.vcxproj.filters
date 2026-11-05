@@ -54,6 +54,15 @@
     <ClCompile Include="FileList.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="ThumbnailCache.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="FlirThermal.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="ThermalNavigator.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="Helpers.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -306,6 +315,15 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="FileList.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="ThumbnailCache.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="FlirThermal.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="ThermalNavigator.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="Helpers.h">

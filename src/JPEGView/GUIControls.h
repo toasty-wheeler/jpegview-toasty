@@ -266,10 +266,17 @@ public:
 	// Sets the dimming factor for the button background, 0 for no dimming 1.0 for blackness
 	void SetDimmingFactor(float factor) { m_dimmingFactor = factor; }
 
+	// Draws the button as circle instead of a rectangle
+	void SetRound(bool bRound) { m_bRound = bRound; }
+
+	// Lights up the button as if the mouse was over it, used when the command was triggered by keyboard
+	void SetFlash(bool bFlash);
+
 public:
 	virtual CSize GetMinSize();
 	virtual bool OnMouseLButton(EMouseEvent eMouseEvent, int nX, int nY);
 	virtual bool OnMouseMove(int nX, int nY);
+	virtual void OnPaint(CDC & dc, const CPoint& offset);
 
 protected:
 	virtual void PreDraw(CDC & dc, CRect position);
@@ -281,6 +288,8 @@ private:
 	float m_dimmingFactor;
 	bool m_bDragging;
 	bool m_bActive;
+	bool m_bRound;
+	bool m_bFlash;
 	CRect m_extendedArea;
 	ButtonPressedHandler* m_buttonPressedHandler;
 	void* m_pContext;

@@ -156,6 +156,7 @@ CSettingsProvider::CSettingsProvider(void) {
 
 	m_bNavigateMouseWheel = GetBool(_T("NavigateWithMouseWheel"), false);
 	m_dMouseWheelZoomSpeed = GetDouble(_T("MouseWheelZoomSpeed"), 1.0, 0.1, 10);
+	m_bTouchpadScrollPans = GetBool(_T("TouchpadScrollPans"), false);
 
 	CString sDeleteConfirmation = GetString(_T("DeleteConfirmation"), _T("OnlyWhenNoRecycleBin"));
 	if (sDeleteConfirmation.CompareNoCase(_T("OnlyWhenNoRecycleBin")) == 0) {
@@ -438,6 +439,8 @@ void CSettingsProvider::ReadWriteableINISettings() {
 	m_eAutoZoomMode = GetAutoZoomMode(_T("AutoZoomMode"), Helpers::ZM_FitToScreenNoZoom);
 	m_eAutoZoomModeFullscreen = GetAutoZoomMode(_T("AutoZoomModeFullscreen"), m_eAutoZoomMode);
 	m_bShowNavPanel = GetBool(_T("ShowNavPanel"), true);
+	m_bShowThumbnailStrip = GetBool(_T("ShowThumbnailStrip"), true);
+	m_bShowThermalData = GetBool(_T("ShowThermalData"), true);
 
 	m_bHQRS = GetBool(_T("HighQualityResampling"), true);
 	m_bDefaultSelectionMode = GetBool(_T("DefaultSelectionMode"), true);
@@ -689,9 +692,9 @@ LPCTSTR CSettingsProvider::ReadGlobalIniString(LPCTSTR key) {
 LPCTSTR CSettingsProvider::ReadIniString(LPCTSTR key, LPCTSTR fileName, IniHashMap*& keyMap, TCHAR*& pBuffer) {
 	if (keyMap == NULL) {
 		keyMap = new IniHashMap();
-		ReadIniFile(m_sIniNameUser, keyMap, pBuffer);
+		ReadIniFile(fileName, keyMap, pBuffer);
 	}
-	hash_map<LPCTSTR, LPCTSTR, CHashCompareLPCTSTR>::const_iterator iter;
+	IniHashMap::const_iterator iter;
 	iter = keyMap->find(key);
 	if (iter == keyMap->end()) {
 		return NULL; // not found

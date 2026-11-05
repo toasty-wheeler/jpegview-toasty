@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <!-- .NET Framework 4.8 ships with Windows 10/11, so no runtime needs to be installed -->
+    <TargetFramework>net48</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <LangVersion>latest</LangVersion>
+    <AssemblyName>JPEGViewSettings</AssemblyName>
+    <RootNamespace>JPEGViewSettings</RootNamespace>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>..\JPEGView\res\JPEGView.ico</ApplicationIcon>
+    <Version>1.0.0</Version>
+    <Product>JPEGView Settings</Product>
+    <Description>Graphical editor for the JPEGView INI settings</Description>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Stock settings, used as "default" when the user INI and the global INI are the same file (StoreToEXEPath=true) -->
+    <EmbeddedResource Include="..\JPEGView\Config\JPEGView.ini" LogicalName="DefaultJPEGView.ini" />
+  </ItemGroup>
+
+</Project>

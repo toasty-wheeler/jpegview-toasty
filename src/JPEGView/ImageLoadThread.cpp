@@ -12,6 +12,7 @@
 #include "dcraw_mod.h"
 #include "TJPEGWrapper.h"
 #include "PNGWrapper.h"
+#include "FlirThermal.h"
 #ifndef WINXP
 #include "JXLWrapper.h"
 #include "HEIFWrapper.h"
@@ -479,6 +480,7 @@ void CImageLoadThread::ProcessReadJPEGRequest(CRequest * request) {
 
 	HGLOBAL hFileBuffer = NULL;
 	void* pBuffer = NULL;
+	CFlirThermalData* pThermalData = NULL;
 	try {
 		// Don't read too huge files
 		long long nFileSize = Helpers::GetFileSize(hFile);
@@ -497,7 +499,16 @@ void CImageLoadThread::ProcessReadJPEGRequest(CRequest * request) {
 		}
 		unsigned int nNumBytesRead;
 		if (::ReadFile(hFile, pBuffer, nFileSize, (LPDWORD) &nNumBytesRead, NULL) && nNumBytesRead == nFileSize) {
-			bool bUseGDIPlus = CSettingsProvider::This().ForceGDIPlus() || CSettingsProvider::This().UseEmbeddedColorProfiles();
+			// FLIR thermal images: the photo of the visible light camera embedded in the file is shown as a second frame
+			pThermalData = CSettingsProvider::This().ShowThermalData() ? CFlirThermalData::Create(pBuffer, (int)nFileSize) : NULL;
+			bool bShowPhoto = pThermalData != NULL && pThermalData->HasPhoto() && request->FrameIndex == CFlirThermalData::PHOTO_FRAME_INDEX;
+			const void* pImageJPEG = bShowPhoto ? &(pThermalData->GetPhotoJPEG()[0]) : pBuffer;
+			int nImageJPEGSize = bShowPhoto ? (int)pThermalData->GetPhotoJPEG().size() : (int)nFileSize;
+			if (pThermalData != NULL) {
+				pThermalData->CreateThumbnails(pBuffer, (int)nFileSize);
+			}
+
+			bool bUseGDIPlus = !bShowPhoto && (CSettingsProvider::This().ForceGDIPlus() || CSettingsProvider::This().UseEmbeddedColorProfiles());
 			if (bUseGDIPlus) {
 				IStream* pStream = NULL;
 				if (::CreateStreamOnHGlobal(hFileBuffer, FALSE, &pStream) == S_OK) {
@@ -521,8 +532,8 @@ void CImageLoadThread::ProcessReadJPEGRequest(CRequest * request) {
 				bool bOutOfMemory;
 				// int nTicks = ::GetTickCount();
 
-				void* pPixelData = TurboJpeg::ReadImage(nWidth, nHeight, nBPP, eChromoSubSampling, bOutOfMemory, pBuffer, nFileSize);
-				
+				void* pPixelData = TurboJpeg::ReadImage(nWidth, nHeight, nBPP, eChromoSubSampling, bOutOfMemory, pImageJPEG, nImageJPEGSize);
+
 				/*
 				TCHAR buffer[20];
 				_stprintf_s(buffer, 20, _T("%d"), ::GetTickCount() - nTicks);
@@ -531,9 +542,9 @@ void CImageLoadThread::ProcessReadJPEGRequest(CRequest * request) {
 
 				// Color and b/w JPEG is supported
 				if (pPixelData != NULL && (nBPP == 3 || nBPP == 1)) {
-					request->Image = new CJPEGImage(nWidth, nHeight, pPixelData, 
-						Helpers::FindEXIFBlock(pBuffer, nFileSize), nBPP, 
-						Helpers::CalculateJPEGFileHash(pBuffer, nFileSize), IF_JPEG, false, 0, 1, 0);
+					request->Image = new CJPEGImage(nWidth, nHeight, pPixelData,
+						Helpers::FindEXIFBlock(pBuffer, nFileSize), nBPP,
+						Helpers::CalculateJPEGFileHash((void*)pImageJPEG, nImageJPEGSize), IF_JPEG, false, bShowPhoto ? CFlirThermalData::PHOTO_FRAME_INDEX : 0, 1, 0);
 					request->Image->SetJPEGComment(Helpers::GetJPEGComment(pBuffer, nFileSize));
 					request->Image->SetJPEGChromoSampling(eChromoSubSampling);
 				} else if (bOutOfMemory) {
@@ -544,12 +555,17 @@ void CImageLoadThread::ProcessReadJPEGRequest(CRequest * request) {
 					ProcessReadGDIPlusRequest(request);
 				}
 			}
+			if (request->Image != NULL && pThermalData != NULL) {
+				request->Image->SetThermalData(pThermalData);
+				pThermalData = NULL;
+			}
 		}
 	} catch (...) {
 		delete request->Image;
 		request->Image = NULL;
 		request->ExceptionError = true;
 	}
+	delete pThermalData; // not attached to an image
 	::CloseHandle(hFile);
 	if (pBuffer) ::GlobalUnlock(hFileBuffer);
 	if (hFileBuffer) ::GlobalFree(hFileBuffer);

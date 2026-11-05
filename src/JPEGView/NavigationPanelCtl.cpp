@@ -26,7 +26,7 @@ static int GetDeleteCommandId() {
 	}
 }
 
-CNavigationPanelCtl::CNavigationPanelCtl(CMainDlg* pMainDlg, CPanel* pImageProcPanel, bool* pFullScreenMode) : CPanelController(pMainDlg, false) {
+CNavigationPanelCtl::CNavigationPanelCtl(CMainDlg* pMainDlg, CPanel* pImageProcPanel, bool* pFullScreenMode, CThumbnailCache* pThumbnailCache) : CPanelController(pMainDlg, false) {
 	m_bEnabled = CSettingsProvider::This().ShowNavPanel();
 	m_nMouseX = m_nMouseY = 0;
 	m_bMouseInNavPanel = false;
@@ -36,7 +36,12 @@ CNavigationPanelCtl::CNavigationPanelCtl(CMainDlg* pMainDlg, CPanel* pImageProcP
 	m_nBlendInNavPanelCountdown = 0;
 	m_pMemDCAnimation = NULL;
 	m_hOffScreenBitmapAnimation = NULL;
-	m_pPanel = m_pNavPanel = new CNavigationPanel(pMainDlg->m_hWnd, this, pImageProcPanel, pMainDlg->GetKeyMap(), pFullScreenMode, &(CMainDlg::IsCurrentImageFitToScreen), pMainDlg);
+	m_pFlashButton = NULL;
+	m_bShownByKeyboard = false;
+	m_pPanel = m_pNavPanel = new CNavigationPanel(pMainDlg->m_hWnd, this, pImageProcPanel, pMainDlg->GetKeyMap(), pFullScreenMode, &(CMainDlg::IsCurrentImageFitToScreen), pMainDlg, pThumbnailCache);
+	if (m_pNavPanel->GetThumbnailStrip() != NULL) {
+		m_pNavPanel->GetThumbnailStrip()->SetClickedHandler(&OnThumbnailClicked, this);
+	}
 	m_pNavPanel->GetBtnHome()->SetButtonPressedHandler(&OnGotoImage, this, CMainDlg::POS_First);
 	m_pNavPanel->GetBtnPrev()->SetButtonPressedHandler(&OnGotoImage, this, CMainDlg::POS_Previous);
 	m_pNavPanel->GetBtnNext()->SetButtonPressedHandler(&OnGotoImage, this, CMainDlg::POS_Next);
@@ -44,7 +49,6 @@ CNavigationPanelCtl::CNavigationPanelCtl(CMainDlg* pMainDlg, CPanel* pImageProcP
 	if (CSettingsProvider::This().AllowFileDeletion()) {
 		m_pNavPanel->GetBtnDelete()->SetButtonPressedHandler(&CMainDlg::OnExecuteCommand, pMainDlg, GetDeleteCommandId());
 	}
-	m_pNavPanel->GetBtnZoomMode()->SetButtonPressedHandler(&CMainDlg::OnExecuteCommand, pMainDlg, IDM_ZOOM_MODE, pMainDlg->IsInZoomMode());
 	m_pNavPanel->GetBtnFitToScreen()->SetButtonPressedHandler(&OnToggleZoomFit, this);
 	m_pNavPanel->GetBtnWindowMode()->SetButtonPressedHandler(&OnToggleWindowMode, this);
 	m_pNavPanel->GetBtnRotateCW()->SetButtonPressedHandler(&OnRotate, this, IDM_ROTATE_90);
@@ -54,6 +58,7 @@ CNavigationPanelCtl::CNavigationPanelCtl(CMainDlg* pMainDlg, CPanel* pImageProcP
 	m_pNavPanel->GetBtnKeepParams()->SetButtonPressedHandler(&CMainDlg::OnExecuteCommand, pMainDlg, IDM_KEEP_PARAMETERS, pMainDlg->IsKeepParams());
 	m_pNavPanel->GetBtnLandscapeMode()->SetButtonPressedHandler(&CMainDlg::OnExecuteCommand, pMainDlg, IDM_LANDSCAPE_MODE, pMainDlg->IsLandscapeMode());
 	m_pNavPanel->GetBtnShowInfo()->SetButtonPressedHandler(&CMainDlg::OnExecuteCommand, pMainDlg, IDM_SHOW_FILEINFO, pMainDlg->GetEXIFDisplayCtl()->IsActive());
+	m_pNavPanel->GetBtnSettings()->SetButtonPressedHandler(&CMainDlg::OnExecuteCommand, pMainDlg, IDM_EDIT_USER_CONFIG);
 }
 
 CNavigationPanelCtl::~CNavigationPanelCtl() {
@@ -77,7 +82,58 @@ void CNavigationPanelCtl::AdjustMaximalWidth(int nMaxWidth) {
 bool CNavigationPanelCtl::IsVisible() {
 	bool bMouseInNavPanel = m_bMouseInNavPanel && !m_pMainDlg->GetImageProcPanelCtl()->IsVisible();
 	return m_bEnabled && !(m_fCurrentBlendingFactorNavPanel <= 0.0f && !bMouseInNavPanel) &&
-		!m_pMainDlg->IsInMovieMode() && !m_pMainDlg->IsDoCropping() && (m_pMainDlg->IsMouseOn() || bMouseInNavPanel);
+		!m_pMainDlg->IsInMovieMode() && !m_pMainDlg->IsDoCropping() && (m_pMainDlg->IsMouseOn() || bMouseInNavPanel || m_bShownByKeyboard);
+}
+
+CButtonCtrl* CNavigationPanelCtl::GetButtonForCommand(int nCommand) {
+	switch (nCommand) {
+	case IDM_NEXT: return m_pNavPanel->GetBtnNext();
+	case IDM_PREV: return m_pNavPanel->GetBtnPrev();
+	case IDM_FIRST: return m_pNavPanel->GetBtnHome();
+	case IDM_LAST: return m_pNavPanel->GetBtnEnd();
+	case IDM_MOVE_TO_RECYCLE_BIN:
+	case IDM_MOVE_TO_RECYCLE_BIN_CONFIRM:
+	case IDM_MOVE_TO_RECYCLE_BIN_CONFIRM_PERMANENT_DELETE:
+		return m_pNavPanel->GetBtnDelete(); // NULL if file deletion is not allowed
+	case IDM_TOGGLE_FIT_TO_SCREEN_100_PERCENTS: return m_pNavPanel->GetBtnFitToScreen();
+	case IDM_FULL_SCREEN_MODE: return m_pNavPanel->GetBtnWindowMode();
+	case IDM_ROTATE_90: return m_pNavPanel->GetBtnRotateCW();
+	case IDM_ROTATE_270: return m_pNavPanel->GetBtnRotateCCW();
+	case IDM_KEEP_PARAMETERS: return m_pNavPanel->GetBtnKeepParams();
+	case IDM_LANDSCAPE_MODE: return m_pNavPanel->GetBtnLandscapeMode();
+	case IDM_SHOW_FILEINFO: return m_pNavPanel->GetBtnShowInfo();
+	default: return NULL;
+	}
+}
+
+void CNavigationPanelCtl::FlashButtonForCommand(int nCommand) {
+	CButtonCtrl* pButton = GetButtonForCommand(nCommand);
+	if (pButton == NULL || !m_bEnabled || m_pMainDlg->GetImageProcPanelCtl()->IsVisible() ||
+		m_pMainDlg->GetPanelMgr()->IsModalPanelShown() || m_pMainDlg->IsInMovieMode()) {
+		return;
+	}
+	if (m_pFlashButton != NULL && m_pFlashButton != pButton) {
+		m_pFlashButton->SetFlash(false);
+	}
+	m_pFlashButton = pButton;
+	pButton->SetFlash(true);
+	m_bShownByKeyboard = true;
+
+	// show the panel fully until the flash is over, then let it fade out
+	EndNavPanelAnimation();
+	::KillTimer(m_pMainDlg->GetHWND(), NAVPANEL_START_ANI_TIMER_EVENT_ID);
+	::KillTimer(m_pMainDlg->GetHWND(), NAVPANEL_FLASH_TIMER_EVENT_ID);
+	::SetTimer(m_pMainDlg->GetHWND(), NAVPANEL_FLASH_TIMER_EVENT_ID, 700, NULL);
+	m_pMainDlg->InvalidateRect(PanelRect(), FALSE);
+}
+
+void CNavigationPanelCtl::EndFlash() {
+	::KillTimer(m_pMainDlg->GetHWND(), NAVPANEL_FLASH_TIMER_EVENT_ID);
+	if (m_pFlashButton != NULL) {
+		m_pFlashButton->SetFlash(false);
+		m_pFlashButton = NULL;
+		m_pMainDlg->InvalidateRect(PanelRect(), FALSE);
+	}
 }
 
 void CNavigationPanelCtl::SetActive(bool bActive) {
@@ -177,6 +233,12 @@ bool CNavigationPanelCtl::OnTimer(int nTimerId) {
 	} else if (nTimerId == NAVPANEL_ANI_TIMER_EVENT_ID) {
 		DoNavPanelAnimation();
 		return true;
+	} else if (nTimerId == NAVPANEL_FLASH_TIMER_EVENT_ID) {
+		EndFlash();
+		if (!m_bMouseInNavPanel) {
+			StartNavPanelAnimation(true, true);
+		}
+		return true;
 	}
 	return false;
 }
@@ -263,6 +325,9 @@ void CNavigationPanelCtl::DoNavPanelAnimation() {
 			screenDC.BitBlt(rectNavPanel.left, rectNavPanel.top, rectNavPanel.Width(), rectNavPanel.Height(), *m_pMemDCAnimation, 0, 0, SRCCOPY);
 		}
 	}
+	if (m_bFadeOut && m_fCurrentBlendingFactorNavPanel <= 0.0f) {
+		m_bShownByKeyboard = false; // faded out, from now on only the mouse brings the panel back
+	}
 	if (bTerminate) {
 		EndNavPanelAnimation();
 	}
@@ -286,7 +351,13 @@ void CNavigationPanelCtl::EndNavPanelAnimation() {
 }
 
 void CNavigationPanelCtl::HideNavPanelTemporary(bool bForce) {
-	if (bForce || !m_bMouseInNavPanel || m_pMainDlg->GetImageProcPanelCtl()->IsVisible() || m_pMainDlg->IsCropping()) {
+	if (bForce) {
+		EndFlash();
+		m_bShownByKeyboard = false;
+	} else if (m_pFlashButton != NULL) {
+		return; // keep the panel visible while a button lights up after a key press (new image loaded by this key)
+	}
+	if (bForce ||!m_bMouseInNavPanel || m_pMainDlg->GetImageProcPanelCtl()->IsVisible() || m_pMainDlg->IsCropping()) {
 		m_bInNavPanelAnimation = true;
 		m_fCurrentBlendingFactorNavPanel = 0.0;
 		m_pMainDlg->InvalidateRect(PanelRect(), FALSE);
@@ -314,7 +385,7 @@ void CNavigationPanelCtl::SetMouseInNavPanel(bool value) {
 		for (iter = controls.begin(); iter != controls.end( ); iter++ ) {
 			CButtonCtrl* pButton = dynamic_cast<CButtonCtrl*>(iter->second);
 			if (pButton != NULL) {
-				pButton->SetDimmingFactor(m_bMouseInNavPanel ? 0.5f : 0.0f);
+				pButton->SetDimmingFactor(m_bMouseInNavPanel ? 0.6f : 0.0f);
 			}
 		}
 	}
@@ -351,6 +422,23 @@ void CNavigationPanelCtl::OnToggleZoomFit(void* pContext, int nParameter, CButto
 	} else {
 		pThis->m_pMainDlg->ResetZoomToFitScreen(false, true, true);
 	}
+}
+
+void CNavigationPanelCtl::SetThumbnailFiles(const std::vector<CString>& files, int nCurrent) {
+	if (m_pNavPanel->GetThumbnailStrip() != NULL) {
+		m_pNavPanel->GetThumbnailStrip()->SetFiles(files, nCurrent);
+	}
+}
+
+void CNavigationPanelCtl::OnThumbnailReady() {
+	if (m_pNavPanel->GetThumbnailStrip() != NULL && IsVisible()) {
+		m_pNavPanel->GetThumbnailStrip()->Invalidate();
+	}
+}
+
+void CNavigationPanelCtl::OnThumbnailClicked(void* pContext, int nOffset) {
+	CNavigationPanelCtl* pThis = (CNavigationPanelCtl*)pContext;
+	pThis->m_pMainDlg->GotoImageOffset(nOffset);
 }
 
 void CNavigationPanelCtl::OnToggleWindowMode(void* pContext, int nParameter, CButtonCtrl & sender) {
