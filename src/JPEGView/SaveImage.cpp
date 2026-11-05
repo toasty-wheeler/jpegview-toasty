@@ -3,7 +3,9 @@
 #include "JPEGImage.h"
 #include "BasicProcessing.h"
 #include "Helpers.h"
+#include "HelpersGUI.h"
 #include "SettingsProvider.h"
+#include "FlirThermal.h"
 #include "ParameterDB.h"
 #include "EXIFReader.h"
 #include "TJPEGWrapper.h"
@@ -375,6 +377,35 @@ bool CSaveImage::SaveImage(LPCTSTR sFileName, CJPEGImage * pImage, const CImageP
 		Helpers::CopyDIBOnColor(pDIB32bpp, imageSize.cx, imageSize.cy, CSettingsProvider::This().ColorTransparency()) : NULL;
 	if (pFlattenedDIB != NULL) {
 		pDIB32bpp = pFlattenedDIB;
+	}
+
+	// FLIR thermal images: the measuring points are saved with the image, as they are shown (thermal view or photo)
+	CFlirThermalData* pThermalData = pImage->GetThermalData();
+	const CRotationParams& rotation = pImage->GetRotationParams();
+	if (pThermalData != NULL && pThermalData->HasTemperatures() && pThermalData->GetMeasurements().HasMarkers() &&
+		rotation.Rotation == 0 && rotation.FreeRotation == 0 && !pImage->IsCropped()) {
+		if (pFlattenedDIB == NULL) {
+			pFlattenedDIB = new(std::nothrow) uint32[imageSize.cx * imageSize.cy];
+			if (pFlattenedDIB != NULL) {
+				memcpy(pFlattenedDIB, pDIB32bpp, (size_t)imageSize.cx * imageSize.cy * 4);
+				pDIB32bpp = pFlattenedDIB;
+			}
+		}
+		if (pFlattenedDIB != NULL) {
+			CSize origSize = pImage->OrigSize();
+			ThermalPositionMapper mapper = [=](double dRelX, double dRelY) {
+				if (bFullSize) {
+					return CPoint(Helpers::RoundToInt(dRelX * imageSize.cx), Helpers::RoundToInt(dRelY * imageSize.cy));
+				}
+				// saved in screen size: the processed pixels as shown
+				float fX = (float)(dRelX * origSize.cx), fY = (float)(dRelY * origSize.cy);
+				pImage->OrigToDIB(fX, fY);
+				return CPoint(Helpers::RoundToInt(fX), Helpers::RoundToInt(fY));
+			};
+			// on full size images the markers are as large relative to the image as on the screen
+			int nMarkerSize = bFullSize ? max(6, imageSize.cy / 90) : HelpersGUI::ScaleToScreen(9);
+			pThermalData->DrawMeasurements(pDIB32bpp, imageSize.cx, imageSize.cy, mapper, nMarkerSize);
+		}
 	}
 
 	uint32 nSizeLinePadded = Helpers::DoPadding(imageSize.cx*3, 4);

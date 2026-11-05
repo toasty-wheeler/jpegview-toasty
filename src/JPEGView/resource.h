@@ -300,6 +300,14 @@
 #define IDM_BACKGROUND_CHECKERBOARD	17353
 #define IDM_BATCH_RENAME	17400		// :KeyMap: rename image files of the current folder with a name pattern
 
+// measuring on FLIR thermal images (context menu)
+#define IDM_THERMAL_ADD_POINT	17500		// :KeyMap: thermal images: add a measuring point at the mouse cursor
+#define IDM_THERMAL_SHOW_MAX	17501		// :KeyMap: thermal images: show or hide the hottest spot
+#define IDM_THERMAL_SHOW_MIN	17502		// :KeyMap: thermal images: show or hide the coldest spot
+#define IDM_THERMAL_REMOVE_POINT	17503
+#define IDM_THERMAL_REMOVE_ALL	17504		// :KeyMap: thermal images: remove all measuring points
+#define IDM_THERMAL_RESET_RANGE	17505		// :KeyMap: thermal images: show the camera image again (reset the temperature range)
+
 // batch rename dialog (famomatic fork)
 #define IDD_BATCH_RENAME	8100
 #define IDC_BR_LIST	8101

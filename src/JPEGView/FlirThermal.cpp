@@ -37,6 +37,7 @@ static int ReadInt32(const unsigned char* p, bool bLittleEndian) {
 CFlirThermalData::CFlirThermalData() {
 	m_nRawWidth = m_nRawHeight = 0;
 	m_fMinTemperature = m_fMaxTemperature = 0.0f;
+	m_minPosition.X = m_minPosition.Y = m_maxPosition.X = m_maxPosition.Y = 0.5;
 	m_thumbThermalSize = m_thumbPhotoSize = CSize(0, 0);
 }
 
@@ -181,12 +182,18 @@ bool CFlirThermalData::ParseFFF(const std::vector<unsigned char>& fff) {
 	m_temperatures.resize(raw.size());
 	m_fMinTemperature = 1e9f;
 	m_fMaxTemperature = -1e9f;
+	size_t nMinIndex = 0, nMaxIndex = 0;
 	for (size_t i = 0; i < raw.size(); i++) {
 		float fTemp = lookup[raw[i]];
 		m_temperatures[i] = fTemp;
-		if (fTemp < m_fMinTemperature) m_fMinTemperature = fTemp;
-		if (fTemp > m_fMaxTemperature) m_fMaxTemperature = fTemp;
+		if (fTemp < m_fMinTemperature) { m_fMinTemperature = fTemp; nMinIndex = i; }
+		if (fTemp > m_fMaxTemperature) { m_fMaxTemperature = fTemp; nMaxIndex = i; }
 	}
+	// centers of the sensor pixels
+	m_minPosition.X = ((nMinIndex % m_nRawWidth) + 0.5) / m_nRawWidth;
+	m_minPosition.Y = ((nMinIndex / m_nRawWidth) + 0.5) / m_nRawHeight;
+	m_maxPosition.X = ((nMaxIndex % m_nRawWidth) + 0.5) / m_nRawWidth;
+	m_maxPosition.Y = ((nMaxIndex / m_nRawWidth) + 0.5) / m_nRawHeight;
 	return true;
 }
 
@@ -262,6 +269,160 @@ float CFlirThermalData::GetTemperature(double dRelX, double dRelY) const {
 	int nX = max(0, min(m_nRawWidth - 1, (int)(dRelX * m_nRawWidth)));
 	int nY = max(0, min(m_nRawHeight - 1, (int)(dRelY * m_nRawHeight)));
 	return m_temperatures[nY * m_nRawWidth + nX];
+}
+
+COLORREF CFlirThermalData::GetPaletteColor(double dValue) {
+	// iron palette (black, purple, red, orange, yellow, white) like the one of FLIR cameras
+	static const double stops[][4] = {
+		{ 0.00,   0,   0,   0 },
+		{ 0.15,  32,   0, 120 },
+		{ 0.35, 140,   0, 155 },
+		{ 0.55, 220,  45,  70 },
+		{ 0.72, 250, 130,   0 },
+		{ 0.88, 255, 215,  30 },
+		{ 1.00, 255, 255, 255 }
+	};
+	const int nStops = sizeof(stops) / sizeof(stops[0]);
+	dValue = max(0.0, min(1.0, dValue));
+	for (int i = 1; i < nStops; i++) {
+		if (dValue <= stops[i][0]) {
+			double t = (dValue - stops[i - 1][0]) / (stops[i][0] - stops[i - 1][0]);
+			return RGB((int)(stops[i - 1][1] + t * (stops[i][1] - stops[i - 1][1]) + 0.5),
+				(int)(stops[i - 1][2] + t * (stops[i][2] - stops[i - 1][2]) + 0.5),
+				(int)(stops[i - 1][3] + t * (stops[i][3] - stops[i - 1][3]) + 0.5));
+		}
+	}
+	return RGB(255, 255, 255);
+}
+
+uint32* CFlirThermalData::RenderThermalImage(int nWidth, int nHeight, float fRangeLow, float fRangeHigh) const {
+	if (m_temperatures.empty() || nWidth <= 0 || nHeight <= 0) {
+		return NULL;
+	}
+	uint32* pPixels = new(std::nothrow) uint32[nWidth * nHeight];
+	if (pPixels == NULL) {
+		return NULL;
+	}
+	uint32 palette[256];
+	for (int i = 0; i < 256; i++) {
+		COLORREF color = GetPaletteColor(i / 255.0);
+		palette[i] = 0xFF000000 | (GetRValue(color) << 16) | (GetGValue(color) << 8) | GetBValue(color);
+	}
+	float fScale = (fRangeHigh > fRangeLow) ? 255.0f / (fRangeHigh - fRangeLow) : 0.0f;
+
+	// bilinear interpolation of the sensor grid, the weights of the columns are the same for all rows
+	std::vector<int> x0(nWidth), x1(nWidth);
+	std::vector<float> wx(nWidth);
+	for (int x = 0; x < nWidth; x++) {
+		float fX = max(0.0f, min((float)(m_nRawWidth - 1), (x + 0.5f) * m_nRawWidth / nWidth - 0.5f));
+		x0[x] = (int)fX;
+		x1[x] = min(m_nRawWidth - 1, x0[x] + 1);
+		wx[x] = fX - x0[x];
+	}
+	for (int y = 0; y < nHeight; y++) {
+		float fY = max(0.0f, min((float)(m_nRawHeight - 1), (y + 0.5f) * m_nRawHeight / nHeight - 0.5f));
+		int y0 = (int)fY, y1 = min(m_nRawHeight - 1, y0 + 1);
+		float wy = fY - y0;
+		const float* pRow0 = &m_temperatures[y0 * m_nRawWidth];
+		const float* pRow1 = &m_temperatures[y1 * m_nRawWidth];
+		uint32* pTarget = pPixels + y * nWidth;
+		for (int x = 0; x < nWidth; x++) {
+			float fTop = pRow0[x0[x]] + wx[x] * (pRow0[x1[x]] - pRow0[x0[x]]);
+			float fBottom = pRow1[x0[x]] + wx[x] * (pRow1[x1[x]] - pRow1[x0[x]]);
+			float fIndex = (fTop + wy * (fBottom - fTop) - fRangeLow) * fScale;
+			pTarget[x] = palette[(fIndex <= 0.0f) ? 0 : (fIndex >= 255.0f) ? 255 : (int)fIndex];
+		}
+	}
+	return pPixels;
+}
+
+void CFlirThermalData::DrawMarker(HDC hDC, CPoint center, int nSize, COLORREF color, LPCTSTR sLabel, const CRect& clipRect) const {
+	CDCHandle dc(hDC);
+	int nThickness = max(1, nSize / 6);
+	// black outline first, then the colored marker: visible on any background
+	for (int nPass = 0; nPass < 2; nPass++) {
+		CPen pen;
+		pen.CreatePen(PS_SOLID, nPass == 0 ? nThickness + 2 : nThickness, nPass == 0 ? RGB(0, 0, 0) : color);
+		HPEN hOldPen = dc.SelectPen(pen);
+		HBRUSH hOldBrush = dc.SelectStockBrush(HOLLOW_BRUSH);
+		dc.Ellipse(center.x - nSize, center.y - nSize, center.x + nSize + 1, center.y + nSize + 1);
+		int nInner = nSize / 3, nOuter = nSize + nSize / 2;
+		dc.MoveTo(center.x - nOuter, center.y); dc.LineTo(center.x - nInner, center.y);
+		dc.MoveTo(center.x + nInner, center.y); dc.LineTo(center.x + nOuter + 1, center.y);
+		dc.MoveTo(center.x, center.y - nOuter); dc.LineTo(center.x, center.y - nInner);
+		dc.MoveTo(center.x, center.y + nInner); dc.LineTo(center.x, center.y + nOuter + 1);
+		dc.SelectBrush(hOldBrush);
+		dc.SelectPen(hOldPen);
+	}
+
+	CFont font;
+	font.CreateFont(-max(10, nSize * 3 / 2), 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
+		CLIP_DEFAULT_PRECIS, ANTIALIASED_QUALITY, DEFAULT_PITCH, _T("Segoe UI"));
+	HFONT hOldFont = dc.SelectFont(font);
+	CSize textSize;
+	dc.GetTextExtent(sLabel, (int)_tcslen(sLabel), &textSize);
+	// right of the marker, left of it when there is no room
+	int nX = center.x + nSize + nSize / 2 + 2;
+	if (nX + textSize.cx > clipRect.right) nX = center.x - nSize - nSize / 2 - 2 - textSize.cx;
+	int nY = max((int)clipRect.top, min((int)clipRect.bottom - textSize.cy, (int)(center.y - textSize.cy / 2)));
+	dc.SetBkMode(TRANSPARENT);
+	dc.SetTextColor(RGB(0, 0, 0));
+	for (int dx = -1; dx <= 1; dx++) {
+		for (int dy = -1; dy <= 1; dy++) {
+			if (dx != 0 || dy != 0) dc.TextOut(nX + dx, nY + dy, sLabel);
+		}
+	}
+	dc.SetTextColor(color);
+	dc.TextOut(nX, nY, sLabel);
+	dc.SelectFont(hOldFont);
+}
+
+void CFlirThermalData::DrawMeasurements(HDC hDC, const ThermalPositionMapper& mapper, int nMarkerSize, const CRect& clipRect) const {
+	if (!HasTemperatures()) {
+		return;
+	}
+	CString sLabel;
+	for (size_t i = 0; i < m_measurements.Points.size(); i++) {
+		const CThermalPoint& point = m_measurements.Points[i];
+		sLabel.Format(_T("%d: %.1f \x00B0") _T("C"), (int)i + 1, GetTemperature(point.X, point.Y));
+		DrawMarker(hDC, mapper(point.X, point.Y), nMarkerSize, RGB(255, 255, 255), sLabel, clipRect);
+	}
+	if (m_measurements.ShowMax) {
+		sLabel.Format(_T("Max %.1f \x00B0") _T("C"), m_fMaxTemperature);
+		DrawMarker(hDC, mapper(m_maxPosition.X, m_maxPosition.Y), nMarkerSize, RGB(255, 70, 50), sLabel, clipRect);
+	}
+	if (m_measurements.ShowMin) {
+		sLabel.Format(_T("Min %.1f \x00B0") _T("C"), m_fMinTemperature);
+		DrawMarker(hDC, mapper(m_minPosition.X, m_minPosition.Y), nMarkerSize, RGB(90, 170, 255), sLabel, clipRect);
+	}
+}
+
+void CFlirThermalData::DrawMeasurements(void* pDIB32bpp, int nWidth, int nHeight, const ThermalPositionMapper& mapper, int nMarkerSize) const {
+	if (pDIB32bpp == NULL || nWidth <= 0 || nHeight <= 0 || !m_measurements.HasMarkers()) {
+		return;
+	}
+	// draw with GDI on a DIB section holding a copy of the pixels, then copy them back
+	BITMAPINFO bmInfo = { 0 };
+	bmInfo.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+	bmInfo.bmiHeader.biWidth = nWidth;
+	bmInfo.bmiHeader.biHeight = -nHeight;
+	bmInfo.bmiHeader.biPlanes = 1;
+	bmInfo.bmiHeader.biBitCount = 32;
+	bmInfo.bmiHeader.biCompression = BI_RGB;
+	void* pSectionPixels = NULL;
+	HBITMAP hSection = ::CreateDIBSection(NULL, &bmInfo, DIB_RGB_COLORS, &pSectionPixels, NULL, 0);
+	if (hSection == NULL || pSectionPixels == NULL) {
+		return;
+	}
+	memcpy(pSectionPixels, pDIB32bpp, (size_t)nWidth * nHeight * 4);
+	HDC hMemDC = ::CreateCompatibleDC(NULL);
+	HGDIOBJ hOldBitmap = ::SelectObject(hMemDC, hSection);
+	DrawMeasurements(hMemDC, mapper, nMarkerSize, CRect(0, 0, nWidth, nHeight));
+	::GdiFlush();
+	memcpy(pDIB32bpp, pSectionPixels, (size_t)nWidth * nHeight * 4);
+	::SelectObject(hMemDC, hOldBitmap);
+	::DeleteDC(hMemDC);
+	::DeleteObject(hSection);
 }
 
 void CFlirThermalData::CreateThumbnails(const void* pThermalJPEG, int nThermalJPEGSize) {

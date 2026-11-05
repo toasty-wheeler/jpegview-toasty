@@ -114,9 +114,13 @@ public:
 	// Applies to original pixels!
 	bool Mirror(bool bHorizontally);
 
-	// Crops the image. 
+	// Crops the image.
 	// Applies to original pixels!
 	bool Crop(CRect cropRect);
+
+	// Replaces the original pixels by 32 bpp BGRA pixels of the same size (ownership goes to this class),
+	// e.g. a thermal image colored for another temperature range
+	bool ReplaceOriginalPixels(void* pNewPixels);
 
 	// Rotate the image clockwise by 90, 180 or 270 degrees. All other angles are invalid.
 	// Applies to original pixels!

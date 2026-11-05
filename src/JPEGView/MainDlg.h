@@ -7,6 +7,8 @@
 #include "ProcessParams.h"
 #include "Helpers.h"
 #include "CropCtl.h"
+#include "FlirThermal.h"
+#include <map>
 
 class CFileList;
 class CJPEGProvider;
@@ -220,6 +222,13 @@ public:
 	void GotoImageOffset(int nOffset);
 	// Swaps between the thermal view and the visible light photo of FLIR thermal images
 	void ToggleThermalPhoto();
+	// Measuring on FLIR thermal images: only while the image is not rotated or cropped (the temperatures are not)
+	bool CanUseThermalTools();
+	// Measuring points and range of the current file
+	const CThermalMeasurements& GetThermalMeasurements();
+	// Colors the thermal view for the temperature range, respectively goes back to the camera image
+	void SetThermalRange(float fLow, float fHigh);
+	void ResetThermalRange();
 	void ReloadImage(bool keepParameters, bool updateWindow = true);
 	void ResetZoomTo100Percents(bool bZoomToMouse);
 	void ResetZoomToFitScreen(bool bFillWithCrop, bool bAllowEnlarge, bool bAdjustWindowSize);
@@ -341,6 +350,9 @@ private:
 	int m_nGotoSteps; // number of images GotoImage() moves for POS_Next and POS_Previous
 	int m_nCurrentFrameOverride; // frame GotoImage() shows for POS_Current, -1 for the first
 	CThermalNavigator* m_pThermalNavigator;
+	std::map<CString, CThermalMeasurements> m_thermalMeasurements; // per file (lower case name), kept for the session
+	CThermalPoint m_thermalMenuPoint; // where the context menu was opened, relative to the image
+	bool m_bThermalMenuPointValid;
 	CEXIFDisplayCtl* m_pEXIFDisplayCtl;
 	CWndButtonPanelCtl* m_pWndButtonPanelCtl;
 	CInfoButtonPanelCtl* m_pInfoButtonPanelCtl;
@@ -412,6 +424,14 @@ private:
 	bool IsTouchpadWheel(int nDelta);
 	void PanOrSwipe(int nDX, int nDY);
 	void UpdateThumbnailStrip();
+	CThermalMeasurements& CurrentThermalMeasurements();
+	void ApplyThermalMeasurements();
+	void RenderThermalRange();
+	void PaintThermalMeasurements(CDC& dc);
+	bool ClientToThermalPoint(int nX, int nY, CThermalPoint& point);
+	CPoint ThermalPointToClient(const CThermalPoint& point);
+	void AppendThermalMenu(HMENU hMenu);
+	void ExecuteThermalCommand(int nCommand);
 	int GetLoadErrorAfterOpenFile();
 	void CheckIfApplyAutoFitWndToImage(bool bInInitDialog);
 	void PrefetchDIB(const CRect& clientRect);

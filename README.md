@@ -38,6 +38,9 @@
 ### FLIR thermal images
 * Radiometric JPEGs of FLIR cameras (the main image is the thermal view, the photo of the visible light camera and the raw sensor values are embedded) show a navigator in the top right corner with the other view. Click it to swap the thermal view and the photo; zoom and position are kept.
 * The navigator shows the temperature under the mouse cursor and the lowest and highest temperature of the image, calculated from the raw sensor values and the calibration stored by the camera (emissivity, reflected temperature, atmosphere).
+* Measuring: the context menu of a thermal image adds a measuring point at the mouse cursor, shows the hottest and the coldest spot, and removes points. The points show their temperature and stay at the same place when switching between the thermal view and the photo.
+* Temperature scale below the navigator: drag its two handles to color the thermal view for another temperature range (iron palette, calculated from the raw sensor values). A double click on the scale goes back to the image of the camera.
+* Saving the processed image saves it as shown, with the measuring points: in the thermal view with the selected range, in the photo view the normal photo with the points.
 * Opening normal images is not slowed down (only the markers at the start of a JPEG are checked). Setting: `ShowThermalData`.
 
 ![FLIR thermal image with the navigator in the top right corner: the photo of the visible light camera, the temperature under the mouse cursor and the lowest and highest temperature](docs/screenshots/flir-thermal.jpg)

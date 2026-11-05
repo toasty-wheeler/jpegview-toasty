@@ -301,6 +301,8 @@ CMainDlg::CMainDlg(bool bForceFullScreen) {
 	m_nGotoSteps = 1;
 	m_nCurrentFrameOverride = -1;
 	m_pThermalNavigator = new CThermalNavigator(this);
+	m_thermalMenuPoint.X = m_thermalMenuPoint.Y = 0.0;
+	m_bThermalMenuPointValid = false;
 	m_pCropCtl = new CCropCtl(this);
 	m_pKeyMap = new CKeyMap(); // routine to load the keymap, it's not as simple as just loading one file anymore, but all logic handled by CKeyMap
 	m_pPrintImage = new CPrintImage(CSettingsProvider::This().PrintMargin(), CSettingsProvider::This().DefaultPrintWidth());
@@ -554,6 +556,10 @@ LRESULT CMainDlg::OnPaint(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM /*lParam*/, B
 		if (!thermalNavigatorRect.IsRectEmpty()) {
 			excludedClippingRects.push_back(thermalNavigatorRect);
 		}
+		CRect thermalScaleRect = m_pThermalNavigator->GetScaleRect();
+		if (!thermalScaleRect.IsRectEmpty()) {
+			excludedClippingRects.push_back(thermalScaleRect);
+		}
 
 		m_pPanelMgr->OnPrePaint(dc);
 		m_pPanelMgr->PrepareMemDCMgr(memDCMgr, excludedClippingRects);
@@ -587,7 +593,8 @@ LRESULT CMainDlg::OnPaint(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM /*lParam*/, B
 		m_pRotationPanelCtl->IsVisible() ? m_pRotationPanelCtl->GetLQRotationAngle() : 0.0, 
 		m_pTiltCorrectionPanelCtl->IsVisible() ? &trapezoid : NULL);
 
-	// paint navigator of FLIR thermal images
+	// measuring points and navigator of FLIR thermal images
+	PaintThermalMeasurements(dc);
 	m_pThermalNavigator->OnPaint(dc);
 
 	// Display file name if enabled
@@ -802,7 +809,9 @@ LRESULT CMainDlg::OnLButtonDown(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM lParam,
 	bool isCropping = m_pCropCtl->IsCropping();
 	CPoint pointClicked(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
 	if (!isCropping && m_pThermalNavigator->OnMouseLButtonDown(pointClicked.x, pointClicked.y)) {
-		::ReleaseCapture();
+		if (!m_pThermalNavigator->IsDraggingScale()) {
+			::ReleaseCapture(); // the mouse stays captured while dragging a handle of the temperature scale
+		}
 		return 0;
 	}
 	bool bEatenByPanel = isCropping ? false : m_pPanelMgr->OnMouseLButton(MouseEvent_BtnDown, pointClicked.x, pointClicked.y);
@@ -839,6 +848,10 @@ LRESULT CMainDlg::OnLButtonDown(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM lParam,
 }
 
 LRESULT CMainDlg::OnLButtonUp(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM lParam, BOOL& /*bHandled*/) {
+	if (m_pThermalNavigator->OnMouseLButtonUp()) {
+		::ReleaseCapture();
+		return 0;
+	}
 	if (m_bZoomMode) {
 		m_bZoomMode = false;
 		AdjustWindowToImage(false);
@@ -911,8 +924,13 @@ LRESULT CMainDlg::OnMButtonUp(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM /*lParam*
 }
 
 LRESULT CMainDlg::OnLButtonDblClk(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM lParam, BOOL& /*bHandled*/) {
-	// the second click of a double click on the thermal navigator swaps the views again
-	if (!m_bDragging && !m_pCropCtl->IsCropping() && m_pThermalNavigator->OnMouseLButtonDown(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam))) {
+	// a double click on the temperature scale resets the range, on the thermal navigator it swaps the views again
+	if (!m_bDragging && !m_pCropCtl->IsCropping() && m_pThermalNavigator->OnMouseLButtonDblClk(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam))) {
+		return 0;
+	}
+	if (!m_bDragging && !m_pCropCtl->IsCropping() && !m_pThermalNavigator->GetRect().IsRectEmpty() &&
+		m_pThermalNavigator->GetRect().PtInRect(CPoint(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)))) {
+		m_pThermalNavigator->OnMouseLButtonDown(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
 		return 0;
 	}
 	if (!m_bDragging && !m_pCropCtl->IsCropping()) {
@@ -966,6 +984,13 @@ LRESULT CMainDlg::OnMouseMove(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM lParam, B
 				MouseOn();
 			}
 		}
+	}
+
+	// Dragging a handle of the temperature scale of thermal images
+	if (m_pThermalNavigator->IsDraggingScale()) {
+		m_pThermalNavigator->OnMouseMove(m_nMouseX, m_nMouseY);
+		::SetCursor(::LoadCursor(NULL, IDC_SIZENS));
+		return 0;
 	}
 
 	// Do dragging or cropping when needed, else pass event to panel manager and zoom navigator
@@ -1480,6 +1505,8 @@ LRESULT CMainDlg::OnContextMenu(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM lParam,
 	}
 
 	// Appended at the end, the code above addresses submenus by position.
+	// Measuring on FLIR thermal images
+	AppendThermalMenu(hMenuTrackPopup);
 	// Background of transparent images and batch rename (from the famomatic fork)
 	HMENU hMenuBackground = ::CreatePopupMenu();
 	::AppendMenu(hMenuBackground, MF_STRING, IDM_BACKGROUND_BLACK, CNLS::GetString(_T("Black")));
@@ -1640,6 +1667,14 @@ void CMainDlg::ExecuteCommand(int nCommand) {
 			break;
 		case IDM_BATCH_RENAME:
 			BatchRename();
+			break;
+		case IDM_THERMAL_ADD_POINT:
+		case IDM_THERMAL_SHOW_MAX:
+		case IDM_THERMAL_SHOW_MIN:
+		case IDM_THERMAL_REMOVE_POINT:
+		case IDM_THERMAL_REMOVE_ALL:
+		case IDM_THERMAL_RESET_RANGE:
+			ExecuteThermalCommand(nCommand);
 			break;
 		case IDM_BATCH_COPY:
 			if (m_pCurrentImage != NULL) {
@@ -2685,6 +2720,181 @@ void CMainDlg::ToggleThermalPhoto() {
 	m_nCurrentFrameOverride = -1;
 }
 
+bool CMainDlg::CanUseThermalTools() {
+	if (m_pCurrentImage == NULL || m_pCurrentImage->GetThermalData() == NULL || !m_pCurrentImage->GetThermalData()->HasTemperatures()) {
+		return false;
+	}
+	const CRotationParams& rotation = m_pCurrentImage->GetRotationParams();
+	return rotation.Rotation == 0 && rotation.FreeRotation == 0 && !m_pCurrentImage->IsCropped() &&
+		m_pCurrentImage->OrigWidth() > 0 && m_pCurrentImage->OrigHeight() > 0;
+}
+
+// Measuring points and range of the current file, kept while switching views and when coming back to the file
+CThermalMeasurements& CMainDlg::CurrentThermalMeasurements() {
+	CString sKey = (CurrentFileName(false) == NULL) ? CString() : CString(CurrentFileName(false));
+	sKey.MakeLower();
+	return m_thermalMeasurements[sKey];
+}
+
+const CThermalMeasurements& CMainDlg::GetThermalMeasurements() {
+	return CurrentThermalMeasurements();
+}
+
+// Called for every new image: gives the measurements of the file to the image, colors the thermal view if a range is set
+void CMainDlg::ApplyThermalMeasurements() {
+	if (m_pCurrentImage == NULL || m_pCurrentImage->GetThermalData() == NULL) {
+		return;
+	}
+	m_pCurrentImage->GetThermalData()->GetMeasurements() = CurrentThermalMeasurements();
+	if (CurrentThermalMeasurements().CustomRange) {
+		RenderThermalRange();
+	}
+}
+
+void CMainDlg::RenderThermalRange() {
+	if (!CanUseThermalTools() || m_pCurrentImage->IsThermalPhotoShown()) {
+		return;
+	}
+	const CThermalMeasurements& measurements = CurrentThermalMeasurements();
+	uint32* pPixels = m_pCurrentImage->GetThermalData()->RenderThermalImage(m_pCurrentImage->OrigWidth(), m_pCurrentImage->OrigHeight(),
+		measurements.RangeLow, measurements.RangeHigh);
+	if (pPixels != NULL) {
+		m_pCurrentImage->ReplaceOriginalPixels(pPixels);
+		this->Invalidate(FALSE);
+	}
+}
+
+void CMainDlg::SetThermalRange(float fLow, float fHigh) {
+	if (!CanUseThermalTools()) {
+		return;
+	}
+	CThermalMeasurements& measurements = CurrentThermalMeasurements();
+	measurements.CustomRange = true;
+	measurements.RangeLow = fLow;
+	measurements.RangeHigh = fHigh;
+	m_pCurrentImage->GetThermalData()->GetMeasurements() = measurements;
+	RenderThermalRange();
+}
+
+void CMainDlg::ResetThermalRange() {
+	CThermalMeasurements& measurements = CurrentThermalMeasurements();
+	if (!measurements.CustomRange || m_pCurrentImage == NULL) {
+		return;
+	}
+	measurements.CustomRange = false;
+	// load the image of the camera again, the measuring points stay
+	m_nCurrentFrameOverride = 0;
+	GotoImage(POS_Current, KEEP_PARAMETERS);
+	m_nCurrentFrameOverride = -1;
+}
+
+bool CMainDlg::ClientToThermalPoint(int nX, int nY, CThermalPoint& point) {
+	if (!CanUseThermalTools()) {
+		return false;
+	}
+	float fX = (float)nX, fY = (float)nY;
+	if (!ScreenToImage(fX, fY)) {
+		return false;
+	}
+	point.X = fX / m_pCurrentImage->OrigWidth();
+	point.Y = fY / m_pCurrentImage->OrigHeight();
+	return point.X >= 0 && point.X < 1 && point.Y >= 0 && point.Y < 1;
+}
+
+CPoint CMainDlg::ThermalPointToClient(const CThermalPoint& point) {
+	float fX = (float)(point.X * m_pCurrentImage->OrigWidth());
+	float fY = (float)(point.Y * m_pCurrentImage->OrigHeight());
+	ImageToScreen(fX, fY);
+	return CPoint(Helpers::RoundToInt(fX) + m_DIBOffsets.x, Helpers::RoundToInt(fY) + m_DIBOffsets.y);
+}
+
+// Measuring points on the image, in the thermal view and the photo at the same place
+void CMainDlg::PaintThermalMeasurements(CDC& dc) {
+	if (!CanUseThermalTools() || !m_pCurrentImage->GetThermalData()->GetMeasurements().HasMarkers()) {
+		return;
+	}
+	// the labels go left of the markers where they would be covered by the navigator or the temperature scale
+	CRect labelRect = m_clientRect;
+	CRect navigatorRect = m_pThermalNavigator->GetRect();
+	if (!navigatorRect.IsRectEmpty()) {
+		labelRect.right = navigatorRect.left - HelpersGUI::ScaleToScreen(4);
+	}
+	m_pCurrentImage->GetThermalData()->DrawMeasurements(dc.m_hDC, [this](double dRelX, double dRelY) {
+		CThermalPoint point = { dRelX, dRelY };
+		return ThermalPointToClient(point);
+	}, HelpersGUI::ScaleToScreen(9), labelRect);
+}
+
+void CMainDlg::AppendThermalMenu(HMENU hMenu) {
+	if (!CanUseThermalTools()) {
+		return;
+	}
+	m_bThermalMenuPointValid = ClientToThermalPoint(m_nMouseX, m_nMouseY, m_thermalMenuPoint);
+	const CThermalMeasurements& measurements = CurrentThermalMeasurements();
+	::AppendMenu(hMenu, MF_SEPARATOR, 0, NULL);
+	::AppendMenu(hMenu, MF_STRING | (m_bThermalMenuPointValid ? 0 : MF_GRAYED), IDM_THERMAL_ADD_POINT, CNLS::GetString(_T("Add measuring point here")));
+	::AppendMenu(hMenu, MF_STRING | (measurements.ShowMax ? MF_CHECKED : 0), IDM_THERMAL_SHOW_MAX, CNLS::GetString(_T("Show hottest spot")));
+	::AppendMenu(hMenu, MF_STRING | (measurements.ShowMin ? MF_CHECKED : 0), IDM_THERMAL_SHOW_MIN, CNLS::GetString(_T("Show coldest spot")));
+	// remove the point under the mouse
+	bool bNearPoint = false;
+	CPoint mouse(m_nMouseX, m_nMouseY);
+	for (size_t i = 0; i < measurements.Points.size(); i++) {
+		CPoint pointOnScreen = ThermalPointToClient(measurements.Points[i]);
+		if (abs(pointOnScreen.x - mouse.x) <= HelpersGUI::ScaleToScreen(14) && abs(pointOnScreen.y - mouse.y) <= HelpersGUI::ScaleToScreen(14)) {
+			bNearPoint = true;
+		}
+	}
+	if (bNearPoint) {
+		::AppendMenu(hMenu, MF_STRING, IDM_THERMAL_REMOVE_POINT, CNLS::GetString(_T("Remove this measuring point")));
+	}
+	::AppendMenu(hMenu, MF_STRING | (measurements.HasMarkers() ? 0 : MF_GRAYED), IDM_THERMAL_REMOVE_ALL, CNLS::GetString(_T("Remove all measuring points")));
+	if (measurements.CustomRange) {
+		::AppendMenu(hMenu, MF_STRING, IDM_THERMAL_RESET_RANGE, CNLS::GetString(_T("Show image of the camera (reset temperature range)")));
+	}
+}
+
+void CMainDlg::ExecuteThermalCommand(int nCommand) {
+	if (!CanUseThermalTools()) {
+		return;
+	}
+	CThermalMeasurements& measurements = CurrentThermalMeasurements();
+	switch (nCommand) {
+		case IDM_THERMAL_ADD_POINT:
+			// at the mouse cursor (where the context menu was opened, the mouse does not move the cursor of the window while the menu is open)
+			m_bThermalMenuPointValid = ClientToThermalPoint(m_nMouseX, m_nMouseY, m_thermalMenuPoint);
+			if (m_bThermalMenuPointValid) measurements.Points.push_back(m_thermalMenuPoint);
+			break;
+		case IDM_THERMAL_SHOW_MAX:
+			measurements.ShowMax = !measurements.ShowMax;
+			break;
+		case IDM_THERMAL_SHOW_MIN:
+			measurements.ShowMin = !measurements.ShowMin;
+			break;
+		case IDM_THERMAL_REMOVE_POINT:
+			{
+				// the point nearest to where the menu was opened
+				CPoint mouse(m_nMouseX, m_nMouseY);
+				int nNearest = -1, nBestDistance = INT_MAX;
+				for (size_t i = 0; i < measurements.Points.size(); i++) {
+					CPoint pointOnScreen = ThermalPointToClient(measurements.Points[i]);
+					int nDistance = abs(pointOnScreen.x - mouse.x) + abs(pointOnScreen.y - mouse.y);
+					if (nDistance < nBestDistance) { nBestDistance = nDistance; nNearest = (int)i; }
+				}
+				if (nNearest >= 0) measurements.Points.erase(measurements.Points.begin() + nNearest);
+				break;
+			}
+		case IDM_THERMAL_REMOVE_ALL:
+			measurements.Points.clear();
+			measurements.ShowMax = measurements.ShowMin = false;
+			break;
+		case IDM_THERMAL_RESET_RANGE:
+			ResetThermalRange();
+			return;
+	}
+	m_pCurrentImage->GetThermalData()->GetMeasurements() = measurements;
+	this->Invalidate(FALSE);
+}
+
 void CMainDlg::GotoImageOffset(int nOffset) {
 	if (nOffset != 0) {
 		m_nGotoSteps = abs(nOffset);
@@ -3345,6 +3555,7 @@ void CMainDlg::AfterNewImageLoaded(bool bSynchronize, bool bAfterStartup, bool n
 	if (!m_bIsAnimationPlaying) m_pNavPanelCtl->HideNavPanelTemporary();
 	m_pPanelMgr->AfterNewImageLoaded();
 	UpdateThumbnailStrip();
+	ApplyThermalMeasurements();
 	m_pThermalNavigator->AfterNewImageLoaded();
 	m_pCropCtl->AbortCropping();
 	if (m_pCurrentImage != NULL) m_pCropCtl->SetImageSize(m_pCurrentImage->OrigSize()); // inform CropCtl of the image size for CropImageAR

@@ -765,6 +765,18 @@ bool CJPEGImage::Mirror(bool bHorizontally) {
 	return true;
 }
 
+bool CJPEGImage::ReplaceOriginalPixels(void* pNewPixels) {
+	if (pNewPixels == NULL) {
+		return false;
+	}
+	InvalidateAllCachedPixelData();
+	delete[] m_pOrigPixels;
+	m_pOrigPixels = pNewPixels;
+	m_nOriginalChannels = 4;
+	m_bHasAlpha = false;
+	return true;
+}
+
 bool CJPEGImage::Crop(CRect cropRect) {
 	// Cropping can only be done in 32 bpp
 	if (!ConvertSrcTo4Channels()) {
