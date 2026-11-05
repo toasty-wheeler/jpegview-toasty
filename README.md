@@ -19,11 +19,15 @@
 * All settings with their explanations from the INI file, grouped by section, with checkboxes, lists, color and font pickers, search, a list of everything changed from the defaults, a list of the settings that affect loading speed, and reset to default.
 * Opens from the new gear button in the navigation bar and from the "Edit user settings" menu entry when it is next to `JPEGView.exe`.
 
+![Settings window](docs/screenshots/settings-window.png)
+
 ### Navigation bar
 * Round buttons, drawn anti-aliased on a dark background so they are sharp on any image.
 * When a key command is used (arrow keys, Home/End, Del, rotate, ...), the bar appears and the matching button lights up.
 * The zoom mode (drag to zoom) button is replaced by a settings button.
 * Thumbnail strip below the buttons, like the photo apps of phones: the current image in the middle (larger, with its aspect ratio and a white frame) and up to 5 images on each side. Click one to show it. The thumbnails come from the thumbnail cache of Windows Explorer and are loaded in the background; only the 11 shown are kept in memory. Setting: `ShowThumbnailStrip`.
+
+![Navigation bar with the thumbnail strip, on generated test pictures. The current image is in the middle with a white frame, the one under the mouse has a yellow frame](docs/screenshots/navigation-bar.png)
 
 ### Touchpad, touch and mouse
 * Precision touchpads: pinch to zoom, two finger swipe left or right for the next or previous image (one image per swipe), two finger pan of zoomed images.
@@ -35,6 +39,8 @@
 * Radiometric JPEGs of FLIR cameras (the main image is the thermal view, the photo of the visible light camera and the raw sensor values are embedded) show a navigator in the top right corner with the other view. Click it to swap the thermal view and the photo; zoom and position are kept.
 * The navigator shows the temperature under the mouse cursor and the lowest and highest temperature of the image, calculated from the raw sensor values and the calibration stored by the camera (emissivity, reflected temperature, atmosphere).
 * Opening normal images is not slowed down (only the markers at the start of a JPEG are checked). Setting: `ShowThermalData`.
+
+![FLIR thermal image with the navigator in the top right corner: the photo of the visible light camera, the temperature under the mouse cursor and the lowest and highest temperature](docs/screenshots/flir-thermal.jpg)
 
 ## Credits and licenses
 
