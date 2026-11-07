@@ -5,7 +5,7 @@
 
 	<String Id="ApplicationName">JPEGView</String>
 	<String Id="ManufacturerName">Kevin M</String>
-	<String Id="ManufacturerFullName">Kevin M (sylikc)</String>
+	<String Id="ManufacturerFullName">toasty-wheeler (fork of JPEGView by Kevin M, sylikc)</String>
 	<String Id="ProductDescription">Lightweight Image Viewer</String>
 	<String Id="Comments">Installs JPEGView</String>
 

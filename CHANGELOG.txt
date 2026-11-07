@@ -1,6 +1,35 @@
 JPEGView Changelog
 ******************
 
+[1.4.0] 2026-11-07 (toasty-wheeler fork, https://github.com/toasty-wheeler/jpegview-toasty)
+New features:
+- Settings window (JPEGViewSettings.exe) for all INI settings, opened with the gear button
+  of the navigation bar and the "Edit user settings" menu entry
+- Navigation bar: round buttons, buttons light up when their key command is used,
+  thumbnail strip with the 5 images before and after the current one
+- Precision touchpad and touch screen gestures: pinch to zoom, two finger pan,
+  swipe for the next or previous image
+- FLIR thermal images: navigator to swap the thermal view and the photo of the visible light
+  camera, temperature under the mouse cursor, minimum and maximum temperature,
+  measuring points, hottest and coldest spot, temperature scale to color the thermal view
+  for another range; saving the processed image keeps the measuring points
+- Background switching for transparent images (black / white / checkerboard), key B
+  Ported from the famomatic fork (https://github.com/famomatic/jpegview)
+- Batch rename dialog with name patterns
+  Ported from the famomatic fork (https://github.com/famomatic/jpegview)
+- New INI settings: ShowThumbnailStrip, TouchpadScrollPans, ShowThermalData, BackgroundMode
+Speed:
+- The folder is listed once when an image is opened instead of once per file type
+- Transparent images open faster
+- A second JPEGView window no longer waits for the first one unless single instance is on
+Bugs fixed:
+- The global JPEGView.ini next to the program was not read
+- Zooming with many small wheel steps (touchpads, smooth scrolling mice) got stuck at 100%
+- ZoomPausePercent values other than 100 were treated as 100
+Changed behavior:
+- Zoom mode button of the navigation bar replaced by a settings button
+- Builds with Visual Studio 2026 (v145 toolset)
+
 [1.3.46] 2023-10-07
 New features:
 - Add support for more RAW image formats with LibRaw, ex: CR3 (ICC profiles are supported)
