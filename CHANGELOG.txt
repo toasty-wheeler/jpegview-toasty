@@ -1,7 +1,7 @@
 JPEGView Changelog
 ******************
 
-[Unreleased] (toasty-wheeler fork)
+[1.5.1] 2026-11-26 (toasty-wheeler fork, https://github.com/toasty-wheeler/jpegview-toasty)
 Removed:
 - Photoshop PSD/PSB support (PSD reader, its Lab color transform, file associations)
 Bug fixes:
