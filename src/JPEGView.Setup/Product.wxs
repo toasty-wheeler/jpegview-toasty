@@ -426,8 +426,6 @@
 						<RegistryValue Root="HKLM" Key="$(var.HKLMCapabilities)\FileAssociations" Name=".heic" Value="JPEGView.Document" Type="string" />
 						<RegistryValue Root="HKLM" Key="$(var.HKLMCapabilities)\FileAssociations" Name=".tga" Value="JPEGView.Document" Type="string" />
 						<RegistryValue Root="HKLM" Key="$(var.HKLMCapabilities)\FileAssociations" Name=".qoi" Value="JPEGView.Document" Type="string" />
-						<RegistryValue Root="HKLM" Key="$(var.HKLMCapabilities)\FileAssociations" Name=".psd" Value="JPEGView.Document" Type="string" />
-						<RegistryValue Root="HKLM" Key="$(var.HKLMCapabilities)\FileAssociations" Name=".psb" Value="JPEGView.Document" Type="string" />
 						<RegistryValue Root="HKLM" Key="$(var.HKLMCapabilities)\FileAssociations" Name=".dds" Value="JPEGView.Document" Type="string" />
 						<RegistryValue Root="HKLM" Key="$(var.HKLMCapabilities)\FileAssociations" Name=".hdr" Value="JPEGView.Document" Type="string" />
 						<RegistryValue Root="HKLM" Key="$(var.HKLMCapabilities)\FileAssociations" Name=".rgbe" Value="JPEGView.Document" Type="string" />
@@ -462,8 +460,6 @@
 						<RegistryValue Root="HKLM" Key="SOFTWARE\Classes\.heic\OpenWithProgids" Name="JPEGView.Document" Value="" Type="string" />
 						<RegistryValue Root="HKLM" Key="SOFTWARE\Classes\.tga\OpenWithProgids" Name="JPEGView.Document" Value="" Type="string" />
 						<RegistryValue Root="HKLM" Key="SOFTWARE\Classes\.qoi\OpenWithProgids" Name="JPEGView.Document" Value="" Type="string" />
-						<RegistryValue Root="HKLM" Key="SOFTWARE\Classes\.psd\OpenWithProgids" Name="JPEGView.Document" Value="" Type="string" />
-						<RegistryValue Root="HKLM" Key="SOFTWARE\Classes\.psb\OpenWithProgids" Name="JPEGView.Document" Value="" Type="string" />
 						<RegistryValue Root="HKLM" Key="SOFTWARE\Classes\.dds\OpenWithProgids" Name="JPEGView.Document" Value="" Type="string" />
 						<RegistryValue Root="HKLM" Key="SOFTWARE\Classes\.hdr\OpenWithProgids" Name="JPEGView.Document" Value="" Type="string" />
 						<RegistryValue Root="HKLM" Key="SOFTWARE\Classes\.rgbe\OpenWithProgids" Name="JPEGView.Document" Value="" Type="string" />
@@ -510,8 +506,6 @@
 						<RegistryValue Root="HKLM" Key="SOFTWARE\Classes\Applications\JPEGView.exe\SupportedTypes" Name=".heic" Value="" Type="string" />
 						<RegistryValue Root="HKLM" Key="SOFTWARE\Classes\Applications\JPEGView.exe\SupportedTypes" Name=".tga" Value="" Type="string" />
 						<RegistryValue Root="HKLM" Key="SOFTWARE\Classes\Applications\JPEGView.exe\SupportedTypes" Name=".qoi" Value="" Type="string" />
-						<RegistryValue Root="HKLM" Key="SOFTWARE\Classes\Applications\JPEGView.exe\SupportedTypes" Name=".psd" Value="" Type="string" />
-						<RegistryValue Root="HKLM" Key="SOFTWARE\Classes\Applications\JPEGView.exe\SupportedTypes" Name=".psb" Value="" Type="string" />
 						<RegistryValue Root="HKLM" Key="SOFTWARE\Classes\Applications\JPEGView.exe\SupportedTypes" Name=".dds" Value="" Type="string" />
 						<RegistryValue Root="HKLM" Key="SOFTWARE\Classes\Applications\JPEGView.exe\SupportedTypes" Name=".hdr" Value="" Type="string" />
 						<RegistryValue Root="HKLM" Key="SOFTWARE\Classes\Applications\JPEGView.exe\SupportedTypes" Name=".rgbe" Value="" Type="string" />

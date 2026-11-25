@@ -773,8 +773,6 @@ EImageFormat GetImageFormat(LPCTSTR sFileName) {
 			return IF_TGA;
 		} else if (_tcsicmp(sEnding, _T("QOI")) == 0) {
 			return IF_QOI;
-		} else if (_tcsicmp(sEnding, _T("PSD")) == 0) {
-			return IF_PSD;
 		} else if (_tcsicmp(sEnding, _T("DDS")) == 0) {
 			return IF_DDS;
 		} else if (_tcsicmp(sEnding, _T("HDR")) == 0 || _tcsicmp(sEnding, _T("RGBE")) == 0) {

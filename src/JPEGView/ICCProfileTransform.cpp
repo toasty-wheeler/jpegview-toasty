@@ -9,7 +9,6 @@
 // This define is necessary for 32-bit builds to work, for some reason
 #define CMS_DLL
 #include "lcms2.h"
-#define TYPE_LabA_8 (COLORSPACE_SH(PT_Lab)|EXTRA_SH(1)|CHANNELS_SH(3)|BYTES_SH(1))
 
 
 void* ICCProfileTransform::sRGBProfile = NULL;
@@ -68,12 +67,10 @@ bool ICCProfileTransform::DoTransform(void* transform, const void* inputBuffer, 
 	switch (inFormat) {
 		case TYPE_BGRA_8:
 		case TYPE_RGBA_8:
-		case TYPE_LabA_8:
 			nchannels = 4;
 			break;
 		case TYPE_BGR_8:
 		case TYPE_RGB_8:
-		case TYPE_Lab_8:
 			nchannels = 3;
 			break;
 		default:
@@ -91,40 +88,6 @@ void ICCProfileTransform::DeleteTransform(void* transform)
 		cmsDeleteTransform(transform);
 }
 
-void* ICCProfileTransform::CreateLabTransform(PixelFormat format) {
-	cmsHTRANSFORM transform = NULL;
-	cmsHPROFILE hLabProfile = NULL;
-	try {
-		hLabProfile = cmsCreateLab4Profile(cmsD50_xyY());
-		if (sRGBProfile == NULL) {
-			sRGBProfile = cmsCreate_sRGBProfile();
-		}
-	} catch (...) {}
-
-	if (hLabProfile == NULL || sRGBProfile == NULL)
-		return NULL; // Could not create profile
-
-	// Create transform from CIELAB D50 (Photoshop "Lab mode") to sRGB
-	cmsUInt32Number flags = cmsFLAGS_BLACKPOINTCOMPENSATION | cmsFLAGS_COPY_ALPHA;
-	cmsUInt32Number inFormat, outFormat;
-	switch (format) {
-		case FORMAT_Lab:
-			inFormat = TYPE_Lab_8;
-			outFormat = TYPE_BGR_8;
-			break;
-		case FORMAT_LabA:
-			inFormat = TYPE_LabA_8;
-			outFormat = TYPE_BGRA_8;
-			break;
-		default:
-			cmsCloseProfile(hLabProfile);
-			return NULL;
-	}
-	transform = cmsCreateTransform(hLabProfile, inFormat, sRGBProfile, outFormat, INTENT_RELATIVE_COLORIMETRIC, flags);
-	cmsCloseProfile(hLabProfile);
-	return transform;
-}
-
 #else
 
 // stub out lcms2 methods in an elegant way in XP build, as per suggestion https://github.com/sylikc/jpegview/commit/4b62f07e2a147a04a5014a5711d159670162e799#commitcomment-102738193
@@ -138,9 +101,5 @@ bool ICCProfileTransform::DoTransform(void* /* transform */, const void* /* inpu
 }
 
 void ICCProfileTransform::DeleteTransform(void* /* transform */) { }
-
-void* ICCProfileTransform::CreateLabTransform(PixelFormat /* format */) {
-	return NULL;
-}
 
 #endif

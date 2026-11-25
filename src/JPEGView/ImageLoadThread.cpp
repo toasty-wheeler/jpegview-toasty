@@ -25,7 +25,6 @@
 #endif
 #include "WEBPWrapper.h"
 #include "QOIWrapper.h"
-#include "PSDWrapper.h"
 #include "MaxImageDef.h"
 
 
@@ -91,8 +90,6 @@ static EImageFormat GetImageFormat(LPCTSTR sFileName) {
 			return IF_CameraRAW;
 	} else if (header[0] == 'q' && header[1] == 'o' && header[2] == 'i' && header[3] == 'f') {
 		return IF_QOI;
-	} else if (header[0] == '8' && header[1] == 'B' && header[2] == 'P' && header[3] == 'S') {
-		return IF_PSD;
 	} else if (nSize >= 4 && memcmp(header, "DDS ", 4) == 0) {
 		return IF_DDS;
 	} else if ((nSize >= 10 && memcmp(header, "#?RADIANCE", 10) == 0) || (nSize >= 6 && memcmp(header, "#?RGBE", 6) == 0)) {
@@ -349,14 +346,6 @@ void CImageLoadThread::ProcessRequest(CRequestBase& request) {
 			DeleteCachedJxlDecoder();
 			DeleteCachedAvifDecoder();
 			ProcessReadHEIFRequest(&rq);
-			break;
-		case IF_PSD:
-			DeleteCachedGDIBitmap();
-			DeleteCachedWebpDecoder();
-			DeleteCachedPngDecoder();
-			DeleteCachedJxlDecoder();
-			DeleteCachedAvifDecoder();
-			ProcessReadPSDRequest(&rq);
 			break;
 		case IF_CameraRAW:
 			DeleteCachedGDIBitmap();
@@ -963,13 +952,6 @@ void CImageLoadThread::ProcessReadHEIFRequest(CRequest* request) {
 	SetErrorMode(nPrevErrorMode);
 	::CloseHandle(hFile);
 	delete[] pBuffer;
-}
-
-void CImageLoadThread::ProcessReadPSDRequest(CRequest* request) {
-	request->Image = PsdReader::ReadImage(request->FileName, request->OutOfMemory);
-	if (request->Image == NULL && !request->OutOfMemory) {
-		request->Image = PsdReader::ReadThumb(request->FileName, request->OutOfMemory);
-	}
 }
 
 #endif

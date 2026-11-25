@@ -2,6 +2,8 @@ JPEGView Changelog
 ******************
 
 [Unreleased] (toasty-wheeler fork)
+Removed:
+- Photoshop PSD/PSB support (PSD reader, its Lab color transform, file associations)
 Bug fixes:
 - "Set as default viewer" on Windows 10/11: JPEGView is listed under "Open with" for every supported type
   (Applications\JPEGView.exe with SupportedTypes, OpenWithProgids) instead of having to browse for the exe,

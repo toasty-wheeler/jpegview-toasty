@@ -291,7 +291,6 @@ void CFileExtensionsDlg::FillFileExtensionsList() {
 	InsertExtension(_T("*.heif"), FormatHint(CNLS::GetString(_T("%s images")), _T("High Efficiency Image File")));
 	InsertExtension(_T("*.heic"), FormatHint(CNLS::GetString(_T("%s images")), _T("High Efficiency Image Container")));
 	InsertExtension(_T("*.qoi"), FormatHint(CNLS::GetString(_T("%s images")), _T("Quite OK Image")));
-	InsertExtension(_T("*.psd"), FormatHint(CNLS::GetString(_T("%s images")), _T("Photoshop Document")));
 	InsertExtension(_T("*.dds"), FormatHint(CNLS::GetString(_T("%s images")), _T("DirectDraw Surface")));
 	InsertExtension(_T("*.hdr"), FormatHint(CNLS::GetString(_T("%s images")), _T("Radiance HDR")));
 	InsertExtensions(CSettingsProvider::This().FilesProcessedByWIC(), CNLS::GetString(_T("%s images (processed by Window Imaging Component - WIC)")));

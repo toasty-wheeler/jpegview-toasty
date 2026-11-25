@@ -52,7 +52,7 @@ HEIF/HEIC, AVIF and JPEG XL images with an HDR transfer function (PQ / SMPTE ST 
 ### Ported from the famomatic fork
 Features of [famomatic/jpegview](https://github.com/famomatic/jpegview), adapted to this fork's code and Visual Studio build:
 * **DDS and Radiance HDR images:** DirectDraw Surface textures (`.dds`: uncompressed, BC1/DXT1, BC2/DXT2-3 and BC3/DXT4-5, also with the DX10 header) and Radiance RGBE images (`.hdr`, `.rgbe`, tone-mapped for display). Both readers need no extra libraries. Changed from the original: DDS files with a DX10 header and a BC1-BC3 format open too, and the Radiance header parser was fixed, so standard `.hdr` files (resolution line after the blank line) open.
-* **Background switching for transparent images:** black, white or checkerboard behind transparent PNG, WebP, JXL, AVIF, HEIF, QOI, GIF, TGA and PSD images. Press **B** to cycle through them, or use the "Background for transparent images" submenu of the context menu. Setting: `BackgroundMode`. The transparency is kept when the image loads instead of being filled in, and is blended onto the background when painting. Saving in a format without transparency, copying and printing still use `TransparencyColor`, as before. Transparent images now also open faster, because the per-pixel blending at load time is gone.
+* **Background switching for transparent images:** black, white or checkerboard behind transparent PNG, WebP, JXL, AVIF, HEIF, QOI, GIF and TGA images. Press **B** to cycle through them, or use the "Background for transparent images" submenu of the context menu. Setting: `BackgroundMode`. The transparency is kept when the image loads instead of being filled in, and is blended onto the background when painting. Saving in a format without transparency, copying and printing still use `TransparencyColor`, as before. Transparent images now also open faster, because the per-pixel blending at load time is gone.
 * **Batch rename:** "Batch rename..." in the context menu renames the image files of the current folder with a pattern of `{name}`, `{ext}`, `{num}`, `{date}` and `{time}` (EXIF date of JPEGs, otherwise the file date). The new name of every file is shown while typing, invalid or duplicate names are refused, and the files are renamed over temporary names with a rollback if anything fails. The viewer stays on the current image under its new name.
 
 ## Credits and licenses
@@ -81,7 +81,7 @@ JPEGView is a lean, fast and highly configurable image viewer/editor with a mini
 JPEGView has built-in support the following formats:
 
 * Popular: JPEG, GIF
-* Lossless: BMP, PNG, TIFF, PSD
+* Lossless: BMP, PNG, TIFF
 * Web: WEBP, JXL, HEIF/HEIC, AVIF
 * Legacy: TGA, WDP, HDP, JXR
 * Textures and HDR: DDS, Radiance HDR (this fork)
