@@ -53,8 +53,11 @@ public:
 	// Everything is done under HKEY_CURRENT_USER
 	bool RegisterJPEGView();
 
-	// Launches the Windows 8 application association dialog (Default programs)
+	// Launches the Windows 8 application association dialog (Default programs), on Windows 10 and 11 the Default apps settings
 	void LaunchApplicationAssociationDialog();
+
+	// Build number of Windows 10 and later (10240 and up, 22000 and up is Windows 11), 0 for older Windows
+	static DWORD GetWindowsBuild();
 
 	// Gets the key name of the last failed key to write
 	CString GetLastFailedRegistryKey() { return m_lastFailedRegistryKey; }

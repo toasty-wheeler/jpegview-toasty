@@ -2737,6 +2737,12 @@ void CMainDlg::SetAsDefaultViewer() {
 		// It is Windows 8 or later, launch the system provided assiciation setting dialog
 		CFileExtensionsRegistrationWindows8 registry;
 		if (registry.RegisterJPEGView()) {
+			DWORD nBuild = CFileExtensionsRegistrationWindows8::GetWindowsBuild();
+			if (nBuild >= 10240 && nBuild < 22000) {
+				// Windows 10 cannot open the settings page of an app directly
+				::MessageBox(m_hWnd, CNLS::GetString(_T("JPEGView is now registered for all image types it supports and is listed under \"Open with\".\n\nIn the Default apps settings that open next, click \"Photo viewer\" and choose JPEGView, or click \"Set defaults by app\", select JPEGView and choose \"Manage\" to set it for each file type.")),
+					_T("JPEGView"), MB_OK | MB_ICONINFORMATION);
+			}
 			registry.LaunchApplicationAssociationDialog();
 		} else {
 			CString sError = CNLS::GetString(_T("Error while writing the following registry key"));

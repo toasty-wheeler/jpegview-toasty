@@ -1,6 +1,14 @@
 JPEGView Changelog
 ******************
 
+[Unreleased] (toasty-wheeler fork)
+Bug fixes:
+- "Set as default viewer" on Windows 10/11: JPEGView is listed under "Open with" for every supported type
+  (Applications\JPEGView.exe with SupportedTypes, OpenWithProgids) instead of having to browse for the exe,
+  the file type gets an icon and name, Explorer is notified, and Settings opens the JPEGView page on
+  Windows 11 (Default apps with a hint on Windows 10). Registering again updates the exe path.
+- Installer: all supported types are declared for Default apps (was only .jpg) and added to "Open with"
+
 [1.5.0] 2026-11-25 (toasty-wheeler fork, https://github.com/toasty-wheeler/jpegview-toasty)
 New features:
 - DDS (DirectDraw Surface) images: uncompressed, BC1-BC3 / DXT1-DXT5, also with the DX10 header

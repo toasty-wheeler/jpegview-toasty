@@ -540,43 +540,81 @@ CFileExtensionsRegistrationWindows8::CFileExtensionsRegistrationWindows8() {
 }
 
 bool CFileExtensionsRegistrationWindows8::RegisterJPEGView() {
-	// ProgId
+	CString exePath = CString(CSettingsProvider::This().GetEXEPath()) + _T("JPEGView.exe");
 	CString startupCommand;
-	startupCommand.Format(_T("\"%sJPEGView.exe\" \"%%1\""), CSettingsProvider::This().GetEXEPath());
-	if (!WriteStringValue(_T("Software\\Classes\\JPEGViewImageFile\\shell\\open\\command"), NULL, startupCommand)) {
+	startupCommand.Format(_T("\"%s\" \"%%1\""), (LPCTSTR)exePath);
+	CString icon;
+	icon.Format(_T("\"%s\",0"), (LPCTSTR)exePath);
+
+	// ProgId used for the default app of the file types. The command always points to the JPEGView.exe that registered
+	// last, so registering again after moving or updating JPEGView fixes stale paths.
+	if (!WriteStringValue(_T("Software\\Classes\\JPEGViewImageFile"), NULL, _T("JPEGView image")) ||
+		!WriteStringValue(_T("Software\\Classes\\JPEGViewImageFile"), _T("FriendlyTypeName"), _T("JPEGView image")) ||
+		!WriteStringValue(_T("Software\\Classes\\JPEGViewImageFile\\DefaultIcon"), NULL, icon) ||
+		!WriteStringValue(_T("Software\\Classes\\JPEGViewImageFile\\shell\\open\\command"), NULL, startupCommand)) {
 		return false;
 	}
 
-	// Set as RegisteredApplications and declare capabilities
+	// Application key: Windows 10 and 11 list JPEGView in "Open with" / "How do you want to open this file?"
+	// only when it is registered here (otherwise the user has to browse for the exe)
+	if (!WriteStringValue(_T("Software\\Classes\\Applications\\JPEGView.exe\\shell\\open"), _T("FriendlyAppName"), _T("JPEGView")) ||
+		!WriteStringValue(_T("Software\\Classes\\Applications\\JPEGView.exe\\shell\\open\\command"), NULL, startupCommand) ||
+		!WriteStringValue(_T("Software\\Classes\\Applications\\JPEGView.exe\\DefaultIcon"), NULL, icon)) {
+		return false;
+	}
+
+	// Set as RegisteredApplications and declare capabilities (Settings - Default apps)
 	if (!WriteStringValue(_T("Software\\RegisteredApplications"), _T("JPEGView"), _T("Software\\JPEGView\\Capabilities"))) {
 		return false;
 	}
-	if (!WriteStringValue(_T("Software\\JPEGView\\Capabilities"), _T("ApplicationDescription"), 
+	if (!WriteStringValue(_T("Software\\JPEGView\\Capabilities"), _T("ApplicationDescription"),
 		CNLS::GetString(_T("JPEGView is a lean, fast and highly configurable viewer/editor for JPEG, BMP, PNG, WEBP, TGA, GIF and TIFF images with a minimal GUI.")))) {
 		return false;
 	}
-	if (!WriteStringValue(_T("Software\\JPEGView\\Capabilities"), _T("ApplicationName"), _T("JPEGView"))) {
+	if (!WriteStringValue(_T("Software\\JPEGView\\Capabilities"), _T("ApplicationName"), _T("JPEGView")) ||
+		!WriteStringValue(_T("Software\\JPEGView\\Capabilities"), _T("ApplicationIcon"), icon)) {
 		return false;
 	}
-	
-	// Declare all supported file endings
+
+	// Declare all supported file endings: capabilities, supported types of the application and OpenWithProgids of the extension
 	CString fileEndings = CFileList::GetSupportedFileEndings();
 	int length = fileEndings.GetLength();
 	LPTSTR buffer = fileEndings.GetBuffer(length + 1);
 	LPCTSTR fileEnding = buffer;
-	for (int i = 0; i <= length; i++) {
+	bool bOk = true;
+	for (int i = 0; i <= length && bOk; i++) {
 		if (buffer[i] == _T(';') || buffer[i] == 0) {
 			fileEnding++; // strip the *
 			buffer[i] = 0;
-			if (!WriteStringValue(_T("Software\\JPEGView\\Capabilities\\FileAssociations"), fileEnding, _T("JPEGViewImageFile"))) {
-				return false;
+			if (*fileEnding == _T('.')) {
+				bOk = WriteStringValue(_T("Software\\JPEGView\\Capabilities\\FileAssociations"), fileEnding, _T("JPEGViewImageFile")) &&
+					WriteStringValue(_T("Software\\Classes\\Applications\\JPEGView.exe\\SupportedTypes"), fileEnding, _T("")) &&
+					WriteStringValue(CString(_T("Software\\Classes\\")) + fileEnding + _T("\\OpenWithProgids"), _T("JPEGViewImageFile"), _T(""));
 			}
-			fileEnding = &(buffer[i + 1]); 
+			fileEnding = &(buffer[i + 1]);
 		}
 	}
 	fileEndings.ReleaseBuffer();
 
-	return true;
+	// Explorer caches the associations
+	::SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, NULL, NULL);
+	return bOk;
+}
+
+// Build number of Windows. GetVersionEx() reports Windows 8 on Windows 10 and 11 because JPEGView has no compatibility manifest.
+static DWORD GetWindowsBuildNumber() {
+	typedef LONG (WINAPI *RtlGetVersionFunc)(OSVERSIONINFOW*);
+	HMODULE hNtDll = ::GetModuleHandle(_T("ntdll.dll"));
+	RtlGetVersionFunc rtlGetVersion = (hNtDll == NULL) ? NULL : (RtlGetVersionFunc)::GetProcAddress(hNtDll, "RtlGetVersion");
+	OSVERSIONINFOW info = { sizeof(OSVERSIONINFOW) };
+	if (rtlGetVersion != NULL && rtlGetVersion(&info) == 0 && info.dwMajorVersion >= 10) {
+		return info.dwBuildNumber;
+	}
+	return 0;
+}
+
+DWORD CFileExtensionsRegistrationWindows8::GetWindowsBuild() {
+	return GetWindowsBuildNumber();
 }
 
 // Redefined because WINVER is set to Windows XP to make JPEGView running under XP, therefore these interface is not defined 
@@ -590,6 +628,15 @@ public:
 };
 
 void CFileExtensionsRegistrationWindows8::LaunchApplicationAssociationDialog() {
+	DWORD nBuild = GetWindowsBuildNumber();
+	if (nBuild >= 10240) {
+		// Windows 10 and 11: the Windows 8 dialog below only opens the general Default apps page.
+		// Windows 11 opens the page of JPEGView with this link (all its file types, "Set default" button),
+		// Windows 10 ignores the parameter and shows Default apps, where "Set defaults by app" lists JPEGView.
+		LPCTSTR sLink = (nBuild >= 22000) ? _T("ms-settings:defaultapps?registeredAppUser=JPEGView") : _T("ms-settings:defaultapps");
+		::ShellExecute(NULL, _T("open"), sLink, NULL, NULL, SW_SHOWNORMAL);
+		return;
+	}
 	const GUID CLSID_ApplicationAssociationRegistrationUI_ = { 0x1968106d, 0xf3b5, 0x44cf, { 0x89, 0x0e, 0x11, 0x6f, 0xcb, 0x9e, 0xce, 0xf1 } };
 
 	IApplicationAssociationRegistrationUI_ *applicationAssociationRegistrationUI = NULL;
