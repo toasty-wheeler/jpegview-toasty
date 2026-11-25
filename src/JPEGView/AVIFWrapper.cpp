@@ -5,6 +5,7 @@
 #include "BasicProcessing.h"
 #include "MaxImageDef.h"
 #include "ICCProfileTransform.h"
+#include "HDRImage.h"
 
 struct AvifReader::avif_cache {
 	avifDecoder* decoder;
@@ -26,8 +27,10 @@ void* AvifReader::ReadImage(int& width,
 	void*& exif_chunk,
 	bool& outOfMemory,
 	const void* buffer,
-	int sizebytes)
+	int sizebytes,
+	HDR::CLinearImage** ppLinear)
 {
+	if (ppLinear != NULL) *ppLinear = NULL;
 	outOfMemory = false;
 	width = height = 0;
 	nchannels = 4;
@@ -87,11 +90,39 @@ void* AvifReader::ReadImage(int& width,
 		return NULL;
 	}
 	cache.rgb.rowBytes = width * nchannels;
-	result = avifImageYUVToRGB(cache.decoder->image, &cache.rgb);
-	if (result != AVIF_RESULT_OK) {
-		delete[] cache.rgb.pixels;
-		DeleteCache();
-		return NULL;
+
+	// HDR images (PQ or HLG transfer, more than 8 bits) are converted with full precision and tone-mapped
+	const avifImage* image = cache.decoder->image;
+	HDR::CSourceInfo hdrInfo;
+	if (image->depth > 8) {
+		hdrInfo.Transfer = HDR::TransferFromH273(image->transferCharacteristics);
+		hdrInfo.Primaries = HDR::PrimariesFromH273(image->colorPrimaries);
+		hdrInfo.PeakNits = image->clli.maxCLL;
+	}
+	bool isHDR = false;
+	if (hdrInfo.IsHDR()) {
+		avifRGBImage rgbHDR;
+		avifRGBImageSetDefaults(&rgbHDR, image);
+		rgbHDR.depth = image->depth;
+		rgbHDR.format = AVIF_RGB_FORMAT_RGBA;
+		rgbHDR.maxThreads = nthreads;
+		if (avifRGBImageAllocatePixels(&rgbHDR) == AVIF_RESULT_OK) {
+			if (avifImageYUVToRGB(image, &rgbHDR) == AVIF_RESULT_OK) {
+				// crop, rotation and mirroring are only applied to the 8 bit image below, so no linear image is kept then
+				bool keepLinear = ppLinear != NULL && (image->transformFlags & (AVIF_TRANSFORM_CLAP | AVIF_TRANSFORM_IROT | AVIF_TRANSFORM_IMIR)) == 0;
+				isHDR = HDR::ConvertToSDR((const uint16_t*)rgbHDR.pixels, width, height, 4, (1 << image->depth) - 1, rgbHDR.rowBytes,
+					hdrInfo, cache.rgb.pixels, keepLinear ? ppLinear : NULL);
+			}
+			avifRGBImageFreePixels(&rgbHDR);
+		}
+	}
+	if (!isHDR) {
+		result = avifImageYUVToRGB(cache.decoder->image, &cache.rgb);
+		if (result != AVIF_RESULT_OK) {
+			delete[] cache.rgb.pixels;
+			DeleteCache();
+			return NULL;
+		}
 	}
 
 	// Handle clap, irot and imir boxes
@@ -133,10 +164,12 @@ void* AvifReader::ReadImage(int& width,
 		}
 	}
 
-	avifRWData icc = cache.decoder->image->icc;
-	if (cache.transform == NULL)
-		cache.transform = ICCProfileTransform::CreateTransform(icc.data, icc.size, ICCProfileTransform::FORMAT_BGRA);
-	ICCProfileTransform::DoTransform(cache.transform, cache.rgb.pixels, cache.rgb.pixels, width, height);
+	if (!isHDR) { // HDR pixels are already in sRGB
+		avifRWData icc = cache.decoder->image->icc;
+		if (cache.transform == NULL)
+			cache.transform = ICCProfileTransform::CreateTransform(icc.data, icc.size, ICCProfileTransform::FORMAT_BGRA);
+		ICCProfileTransform::DoTransform(cache.transform, cache.rgb.pixels, cache.rgb.pixels, width, height);
+	}
 
 	avifRWData exif = cache.decoder->image->exif;
 	if (exif.size > 8 && exif.size < 65528 && exif.data != NULL) {

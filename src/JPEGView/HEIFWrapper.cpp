@@ -3,6 +3,7 @@
 #include "HEIFWrapper.h"
 #include "MaxImageDef.h"
 #include "ICCProfileTransform.h"
+#include "HDRImage.h"
 
 void * HeifReader::ReadImage(int &width,
 					   int &height,
@@ -12,8 +13,10 @@ void * HeifReader::ReadImage(int &width,
 					   bool &outOfMemory,
 					   int frame_index,
 					   const void *buffer,
-					   int sizebytes)
+					   int sizebytes,
+					   HDR::CLinearImage** ppLinear)
 {
+	if (ppLinear != NULL) *ppLinear = NULL;
 	outOfMemory = false;
 	width = height = 0;
 	nchannels = 4;
@@ -28,6 +31,14 @@ void * HeifReader::ReadImage(int &width,
 	heif::ImageHandle handle = context.get_image_handle(item_id);
 	// height = handle.get_height();
 	// width = handle.get_width();
+
+	// HDR images (PQ or HLG) are decoded with full bit depth and tone-mapped
+	pPixelData = (unsigned char*)ReadHDRImage(handle.get_raw_image_handle(), width, height, outOfMemory, ppLinear);
+	if (pPixelData != NULL || outOfMemory) {
+		ReadExif(handle, exif_chunk);
+		return pPixelData;
+	}
+
 	heif::Image image = handle.decode_image(heif_colorspace_RGB, heif_chroma_interleaved_RGBA);
 	int stride;
 	uint8_t* data = image.get_plane(heif_channel_interleaved, &stride);
@@ -66,6 +77,74 @@ void * HeifReader::ReadImage(int &width,
 	}
 	ICCProfileTransform::DeleteTransform(transform);
 
+	ReadExif(handle, exif_chunk);
+	return (void*)pPixelData;
+}
+
+void* HeifReader::ReadHDRImage(heif_image_handle* handle, int& width, int& height, bool& outOfMemory, HDR::CLinearImage** ppLinear) {
+	if (heif_image_handle_get_luma_bits_per_pixel(handle) <= 8) {
+		return NULL;
+	}
+	HDR::CSourceInfo info;
+	heif_color_profile_nclx* nclx = NULL;
+	if (heif_image_handle_get_nclx_color_profile(handle, &nclx).code != heif_error_Ok || nclx == NULL) {
+		return NULL;
+	}
+	info.Transfer = HDR::TransferFromH273(nclx->transfer_characteristics);
+	info.Primaries = HDR::PrimariesFromH273(nclx->color_primaries);
+	heif_nclx_color_profile_free(nclx);
+	if (!info.IsHDR()) {
+		return NULL;
+	}
+
+	bool hasAlpha = heif_image_handle_has_alpha_channel(handle) != 0;
+	heif_image* image = NULL;
+	if (heif_decode_image(handle, &image, heif_colorspace_RGB,
+		hasAlpha ? heif_chroma_interleaved_RRGGBBAA_LE : heif_chroma_interleaved_RRGGBB_LE, NULL).code != heif_error_Ok || image == NULL) {
+		return NULL;
+	}
+	void* pPixelData = NULL;
+	int stride = 0;
+	const uint8_t* data = heif_image_get_plane_readonly(image, heif_channel_interleaved, &stride);
+	int w = heif_image_get_width(image, heif_channel_interleaved);
+	int h = heif_image_get_height(image, heif_channel_interleaved);
+	int bits = heif_image_get_bits_per_pixel_range(image, heif_channel_interleaved);
+	int channels = hasAlpha ? 4 : 3;
+	if (data != NULL && w > 0 && h > 0 && w <= (int)MAX_IMAGE_DIMENSION && h <= (int)MAX_IMAGE_DIMENSION &&
+		bits > 8 && bits <= 16 && stride >= w * channels * 2) {
+		if ((double)w * h > MAX_IMAGE_PIXELS) {
+			outOfMemory = true;
+		} else {
+			if (heif_image_has_content_light_level(image)) {
+				heif_content_light_level clli;
+				heif_image_get_content_light_level(image, &clli);
+				info.PeakNits = clli.max_content_light_level;
+			}
+			if (info.PeakNits <= 0.0f && heif_image_has_mastering_display_colour_volume(image)) {
+				heif_mastering_display_colour_volume mdcv;
+				heif_decoded_mastering_display_colour_volume decoded;
+				heif_image_get_mastering_display_colour_volume(image, &mdcv);
+				if (heif_mastering_display_colour_volume_decode(&mdcv, &decoded).code == heif_error_Ok) {
+					info.PeakNits = (float)decoded.max_display_mastering_luminance;
+				}
+			}
+			pPixelData = new(std::nothrow) unsigned char[(size_t)w * h * 4];
+			if (pPixelData == NULL) {
+				outOfMemory = true;
+			} else if (!HDR::ConvertToSDR((const uint16_t*)data, w, h, channels, (1 << bits) - 1, stride, info, (uint8_t*)pPixelData, ppLinear)) {
+				delete[] (unsigned char*)pPixelData;
+				pPixelData = NULL;
+			} else {
+				width = w;
+				height = h;
+			}
+		}
+	}
+	heif_image_release(image);
+	return pPixelData;
+}
+
+void HeifReader::ReadExif(heif::ImageHandle& handle, void*& exif_chunk) {
 	std::vector<heif_item_id> exif_blocks = handle.get_list_of_metadata_block_IDs("Exif");
 
 	if (!exif_blocks.empty()) {
@@ -94,6 +173,4 @@ void * HeifReader::ReadImage(int &width,
 			}
 		}
 	}
-
-	return (void*)pPixelData;
 }

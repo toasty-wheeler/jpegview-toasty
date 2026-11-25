@@ -100,12 +100,21 @@ bool CZoomNavigatorCtl::OnMouseMove(int nOldX, int nOldY) {
 		InvalidateZoomNavigatorRect();
 	}
 	if (mousePos.x != nOldX || mousePos.y != nOldY) {
-		if (IsPointInZoomNavigatorThumbnail(mousePos)) {
+		if (IsPointInZoomNavigatorThumbnail(mousePos) && m_pMainDlg->IsHDROutputShown()) {
+			// painted with the next paint by the HDR output
+			m_zoomNavigator.SetLastPanRectPoint(mousePos);
+			InvalidateZoomNavigatorRect();
+			m_pMainDlg->GetNavPanelCtl()->StartNavPanelAnimation(true, true);
+			return true;
+		} else if (IsPointInZoomNavigatorThumbnail(mousePos)) {
 			CDC dc(m_pMainDlg->GetDC());
 			m_zoomNavigator.PaintPanRectangle(dc, CPoint(-1, -1));
 			m_zoomNavigator.PaintPanRectangle(dc, mousePos);
 			m_pMainDlg->GetNavPanelCtl()->StartNavPanelAnimation(true, true);
 			return true;
+		} else if (m_zoomNavigator.LastPanRectPoint() != CPoint(-1, -1) && m_pMainDlg->IsHDROutputShown()) {
+			m_zoomNavigator.ClearLastPanRectPoint();
+			InvalidateZoomNavigatorRect();
 		} else if (m_zoomNavigator.LastPanRectPoint() != CPoint(-1, -1)) {
 			m_zoomNavigator.PaintPanRectangle(CDC(m_pMainDlg->GetDC()), CPoint(-1, -1));
 		}
@@ -113,7 +122,7 @@ bool CZoomNavigatorCtl::OnMouseMove(int nOldX, int nOldY) {
 	return false;
 }
 
-void CZoomNavigatorCtl::OnPaint(CPaintDC& paintDC, CRectF visRectZoomNavigator, const CImageProcessingParams* pImageProcParams, 
+void CZoomNavigatorCtl::OnPaint(CDC& paintDC, CRectF visRectZoomNavigator, const CImageProcessingParams* pImageProcParams, 
 								EProcessingFlags eProcessingFlags, double dRotationAngle, const CTrapezoid* pTrapezoid) {
 	if (IsVisible()) {
 		m_zoomNavigator.PaintZoomNavigator(m_pMainDlg->GetCurrentImage(), visRectZoomNavigator,

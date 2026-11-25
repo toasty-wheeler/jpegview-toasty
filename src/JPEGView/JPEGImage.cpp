@@ -10,6 +10,7 @@
 #include "EXIFReader.h"
 #include "RawMetadata.h"
 #include "FlirThermal.h"
+#include "HDRImage.h"
 #include "MaxImageDef.h"
 #include "libjpeg-turbo\include\turbojpeg.h"
 #include <math.h>
@@ -159,6 +160,7 @@ CJPEGImage::CJPEGImage(int nWidth, int nHeight, void* pPixels, void* pEXIFData, 
 	m_dRotationLQ = 0.0;
 	m_bTrapezoidValid = false;
 	m_pThermalData = NULL;
+	m_pLinearImage = NULL;
 
 	// Create the LDC object on the image
 	m_pLDC = (pLDC == NULL) ? (new CLocalDensityCorr(*this, true)) : pLDC;
@@ -180,6 +182,11 @@ void CJPEGImage::SetThermalData(CFlirThermalData* pThermalData) {
 
 bool CJPEGImage::IsThermalPhotoShown() const {
 	return m_pThermalData != NULL && m_nFrameIndex == CFlirThermalData::PHOTO_FRAME_INDEX;
+}
+
+void CJPEGImage::SetLinearImage(HDR::CLinearImage* pLinearImage) {
+	delete m_pLinearImage;
+	m_pLinearImage = pLinearImage;
 }
 
 CJPEGImage::~CJPEGImage(void) {
@@ -208,6 +215,8 @@ CJPEGImage::~CJPEGImage(void) {
 	m_pEXIFReader = NULL;
 	delete m_pThermalData;
 	m_pThermalData = NULL;
+	delete m_pLinearImage;
+	m_pLinearImage = NULL;
 	delete[] m_pDimRects;
 	m_pDimRects = NULL;
 	delete m_pThumbnail;

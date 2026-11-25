@@ -7,7 +7,7 @@
 // if a define is to be included in the publicly-exposed definitions, start the comment with ":KeyMap:"
 // don't worry about the formatting, the script that auto-generates the definition will take care of it
 
-#define JPEGVIEW_VERSION "1, 4, 0, 0\0"
+#define JPEGVIEW_VERSION "1, 5, 0, 0\0"
 // title for main window and msgbox so it can be change via actions
 #define JPEGVIEW_TITLE "JPEGView"
 
@@ -294,11 +294,13 @@
 #define IDM_PAN_LEFT	15203		// :KeyMap: pan left
 #define IDM_CONTEXT_MENU	16000		// :KeyMap: display context menu
 // background switching and batch rename are ported from the famomatic fork (https://github.com/famomatic/jpegview)
-#define IDM_TOGGLE_BACKGROUND	17350		// :KeyMap: switch the background of transparent images (black, white, checkerboard)
+#define IDM_TOGGLE_BACKGROUND	17350		// :KeyMap: switch the background of transparent images (black, white, checkerboard, TransparencyColor)
 #define IDM_BACKGROUND_BLACK	17351
 #define IDM_BACKGROUND_WHITE	17352
 #define IDM_BACKGROUND_CHECKERBOARD	17353
+#define IDM_BACKGROUND_COLOR	17354
 #define IDM_BATCH_RENAME	17400		// :KeyMap: rename image files of the current folder with a name pattern
+#define IDM_TOGGLE_HDR	17450		// :KeyMap: turn the HDR display output of HDR photos on or off
 
 // measuring on FLIR thermal images (context menu)
 #define IDM_THERMAL_ADD_POINT	17500		// :KeyMap: thermal images: add a measuring point at the mouse cursor

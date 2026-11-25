@@ -222,16 +222,15 @@ CSettingsProvider::CSettingsProvider(void) {
 		m_bExplicitWindowRect = true;
 	}
 
-	m_colorBackground = GetColor(_T("BackgroundColor"), 0);
-	CString sBackgroundMode = GetString(_T("BackgroundMode"), _T("Black"));
-	m_eBackgroundMode = (sBackgroundMode.CompareNoCase(_T("White")) == 0) ? Helpers::BGM_White :
-		(sBackgroundMode.CompareNoCase(_T("Checkerboard")) == 0) ? Helpers::BGM_Checkerboard : Helpers::BGM_Black;
+	m_nIniWriteTime = IniFilesWriteTime();
+	ReadAppearanceSettings();
+	CString sHDRDisplay = GetString(_T("HDRDisplay"), _T("Auto"));
+	m_nHDRDisplay = (sHDRDisplay.CompareNoCase(_T("Off")) == 0) ? 0 : (sHDRDisplay.CompareNoCase(_T("Force")) == 0) ? 2 : 1;
 	m_colorGUI = GetColor(_T("GUIColor"), RGB(243, 242, 231));
 	m_colorHighlight = GetColor(_T("HighlightColor"), RGB(255, 205, 0));
 	m_colorSelected = GetColor(_T("SelectionColor"), RGB(255, 205, 0));
 	m_colorSlider = GetColor(_T("SliderColor"), RGB(255, 0, 80));
 	m_colorFileName = GetColor(_T("FileNameColor"), m_colorGUI);
-	m_colorTransparency = GetColor(_T("TransparencyColor"), m_colorBackground);
 
 	m_defaultGUIFont = GetString(_T("DefaultGUIFont"), _T("Default"));
 	m_fileNameFont = GetString(_T("FileNameFont"), _T("Default"));
@@ -397,6 +396,59 @@ CImageProcessingParams CSettingsProvider::LandscapeModeParams(const CImageProces
 		(fParams[8] == cfUndefined) ? templParams.CyanRed : fParams[8],
 		(fParams[9] == cfUndefined) ? templParams.MagentaGreen : fParams[9],
 		(fParams[10] == cfUndefined) ? templParams.YellowBlue : fParams[10]);
+}
+
+void CSettingsProvider::ReadAppearanceSettings() {
+	m_colorBackground = GetColor(_T("BackgroundColor"), 0);
+	m_colorTransparency = GetColor(_T("TransparencyColor"), m_colorBackground);
+	CString sBackgroundMode = GetString(_T("BackgroundMode"), _T("Color"));
+	m_eBackgroundMode = (sBackgroundMode.CompareNoCase(_T("White")) == 0) ? Helpers::BGM_White :
+		(sBackgroundMode.CompareNoCase(_T("Checkerboard")) == 0) ? Helpers::BGM_Checkerboard :
+		(sBackgroundMode.CompareNoCase(_T("Black")) == 0) ? Helpers::BGM_Black : Helpers::BGM_Color;
+}
+
+static ULONGLONG FileWriteTime(LPCTSTR sFileName) {
+	WIN32_FILE_ATTRIBUTE_DATA data;
+	if (!::GetFileAttributesEx(sFileName, GetFileExInfoStandard, &data)) {
+		return 0;
+	}
+	return ((ULONGLONG)data.ftLastWriteTime.dwHighDateTime << 32) | data.ftLastWriteTime.dwLowDateTime;
+}
+
+ULONGLONG CSettingsProvider::IniFilesWriteTime() {
+	return max(FileWriteTime(m_sIniNameGlobal), FileWriteTime(m_sIniNameUser));
+}
+
+bool CSettingsProvider::ReloadAppearanceSettingsIfChanged() {
+	ULONGLONG nWriteTime = IniFilesWriteTime();
+	if (nWriteTime == m_nIniWriteTime) {
+		return false;
+	}
+	m_nIniWriteTime = nWriteTime;
+
+	// the INI files are cached at the first read, drop the cache
+	delete m_pGlobalKeys; m_pGlobalKeys = NULL;
+	delete m_pUserKeys; m_pUserKeys = NULL;
+	delete[] m_pIniGlobalSectionBuffer; m_pIniGlobalSectionBuffer = NULL;
+	delete[] m_pIniUserSectionBuffer; m_pIniUserSectionBuffer = NULL;
+	if (!m_bStoreToEXEPath) {
+		m_bUserINIExists = (::GetFileAttributes(m_sIniNameUser) != INVALID_FILE_ATTRIBUTES);
+	}
+
+	COLORREF colorBackground = m_colorBackground, colorTransparency = m_colorTransparency;
+	Helpers::EBackgroundMode eBackgroundMode = m_eBackgroundMode;
+	ReadAppearanceSettings();
+	return colorBackground != m_colorBackground || colorTransparency != m_colorTransparency || eBackgroundMode != m_eBackgroundMode;
+}
+
+void CSettingsProvider::SetBackgroundMode(Helpers::EBackgroundMode eMode) {
+	m_eBackgroundMode = eMode;
+	MakeSureUserINIExists();
+	m_bUserINIExists = true;
+	WriteString(_T("BackgroundMode"), (eMode == Helpers::BGM_White) ? _T("White") : (eMode == Helpers::BGM_Checkerboard) ? _T("Checkerboard") :
+		(eMode == Helpers::BGM_Black) ? _T("Black") : _T("Color"));
+	// keep the cache in sync without reloading everything
+	ReloadAppearanceSettingsIfChanged();
 }
 
 void CSettingsProvider::ReadWriteableINISettings() {

@@ -7,6 +7,7 @@ class CLocalDensityCorr;
 class CEXIFReader;
 class CRawMetadata;
 class CFlirThermalData;
+namespace HDR { class CLinearImage; }
 enum TJSAMP;
 
 // Represents a rectangle to dim out in the image
@@ -329,6 +330,10 @@ public:
 	// Thermal data of FLIR images, NULL if none. Ownership goes to this class.
 	void SetThermalData(CFlirThermalData* pThermalData);
 	CFlirThermalData* GetThermalData() { return m_pThermalData; }
+
+	// Linear light pixels of HDR photos for the HDR display output, NULL if none. Ownership goes to this class.
+	void SetLinearImage(HDR::CLinearImage* pLinearImage);
+	const HDR::CLinearImage* GetLinearImage() const { return m_pLinearImage; }
 	// Gets if this is the visible light photo of a FLIR image instead of the thermal view
 	bool IsThermalPhotoShown() const;
 
@@ -369,6 +374,7 @@ private:
 	CEXIFReader* m_pEXIFReader;
 	CString m_sJPEGComment;
 	CFlirThermalData* m_pThermalData;
+	HDR::CLinearImage* m_pLinearImage;
 	bool m_bHasAlpha;
 	int m_nOrigWidth, m_nOrigHeight; // these may changes by rotation
 	int m_nInitOrigWidth, m_nInitOrigHeight; // original width of image when constructed (before any rotation and crop)

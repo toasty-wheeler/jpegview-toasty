@@ -22,6 +22,7 @@ class CImageProcPanelCtl;
 class CNavigationPanelCtl;
 class CThumbnailCache;
 class CThermalNavigator;
+namespace HDR { class CDisplayOutput; }
 class CRotationPanelCtl;
 class CTiltCorrectionPanelCtl;
 class CUnsharpMaskPanelCtl;
@@ -77,6 +78,9 @@ public:
 		MESSAGE_HANDLER(WM_SIZE, OnSize)
 		MESSAGE_HANDLER(WM_GETMINMAXINFO, OnGetMinMaxInfo)
 		MESSAGE_HANDLER(WM_PAINT, OnPaint)
+		MESSAGE_HANDLER(WM_DISPLAYCHANGE, OnDisplayChange)
+		MESSAGE_HANDLER(WM_ACTIVATE, OnActivate)
+		MESSAGE_HANDLER(s_nSettingsChangedMessage, OnSettingsChanged)
 		MESSAGE_HANDLER(WM_NCHITTEST, OnNCHitTest)
 		MESSAGE_HANDLER(WM_NCLBUTTONDOWN, OnNCLButtonDown)
 		MESSAGE_HANDLER(WM_LBUTTONDOWN, OnLButtonDown)
@@ -123,6 +127,11 @@ public:
 	LRESULT OnCancel(WORD /*wNotifyCode*/, WORD wID, HWND /*hWndCtl*/, BOOL& /*bHandled*/);
 	LRESULT OnEraseBackground(UINT /*uMsg*/, WPARAM wParam, LPARAM /*lParam*/, BOOL& /*bHandled*/);
 	LRESULT OnPaint(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM /*lParam*/, BOOL& /*bHandled*/);
+	LRESULT OnDisplayChange(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM /*lParam*/, BOOL& /*bHandled*/);
+	LRESULT OnActivate(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM /*lParam*/, BOOL& /*bHandled*/);
+	LRESULT OnSettingsChanged(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM /*lParam*/, BOOL& /*bHandled*/);
+	// Broadcast by the settings window (JPEGViewSettings.exe) after it changed the INI file
+	static const UINT s_nSettingsChangedMessage;
 	LRESULT OnSize(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM /*lParam*/, BOOL& /*bHandled*/);
 	LRESULT OnGetMinMaxInfo(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM /*lParam*/, BOOL& /*bHandled*/);
 	LRESULT OnLButtonDown(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM /*lParam*/, BOOL& /*bHandled*/);
@@ -205,6 +214,9 @@ public:
 	CJPEGProvider* GetJPEGProvider() { return m_pJPEGProvider; }
 	CKeyMap* GetKeyMap() { return m_pKeyMap; }
 	CPoint GetDIBOffset() { return m_DIBOffsets; }
+	// True while an HDR photo is shown with the HDR display output: painting directly on the window is not visible then,
+	// the window must be invalidated instead
+	bool IsHDROutputShown() const;
 	double GetZoomMultiplier(CJPEGImage* pImage, const CRect& clientRect);
 	Helpers::EAutoZoomMode GetAutoZoomMode() { return m_bFullScreenMode ? m_eAutoZoomModeFullscreen : m_eAutoZoomModeWindowed; }
 	CPoint GetOffsets() { return m_offsets; }
@@ -350,6 +362,17 @@ private:
 	int m_nGotoSteps; // number of images GotoImage() moves for POS_Next and POS_Previous
 	int m_nCurrentFrameOverride; // frame GotoImage() shows for POS_Current, -1 for the first
 	CThermalNavigator* m_pThermalNavigator;
+	// HDR display output of HDR photos, NULL until used
+	HDR::CDisplayOutput* m_pHDROutput;
+	// Geometry of the image of the last paint pass, for the HDR display output
+	struct CHDRFrameGeometry {
+		bool Valid;
+		CPoint DIBStart;       // client position of the DIB
+		CSize ClippedSize;     // size of the DIB
+		CPoint OffsetInImage;  // offset of the DIB in the zoomed image
+		CSize VirtualSize;     // size of the zoomed image
+		CPoint CheckerShift;   // checkerboard position of transparent images
+	} m_hdrFrame;
 	std::map<CString, CThermalMeasurements> m_thermalMeasurements; // per file (lower case name), kept for the session
 	CThermalPoint m_thermalMenuPoint; // where the context menu was opened, relative to the image
 	bool m_bThermalMenuPointValid;
@@ -438,6 +461,10 @@ private:
 	bool HandleMouseButtonByKeymap(int nMouseButton, bool bExecuteCommand = true);
 	bool UseSlideShowTransitionEffect();
 	void PaintToDC(CDC& dc);
+	// Paints the window. nHDRPass: 0 normal, 1 and 2 for the HDR output (image area black, respectively white)
+	void PaintMainDlg(CDC& dc, const CRect& paintRect, int nHDRPass);
+	// Shows the current image with the HDR display output if possible, returns false to paint normally
+	bool PaintHDR();
 	void AnimateTransition();
 	void CleanupAndTerminate();
 	void InvalidateHelpDlg();

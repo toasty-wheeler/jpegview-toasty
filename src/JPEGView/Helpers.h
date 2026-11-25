@@ -133,31 +133,37 @@ namespace Helpers {
 	enum EBackgroundMode {
 		BGM_Black,
 		BGM_White,
-		BGM_Checkerboard
+		BGM_Checkerboard,
+		BGM_Color // TransparencyColor of the INI file
 	};
 
+	// Background color of the modes black, white and color (not used for the checkerboard)
+	static inline COLORREF BackgroundModeColor(EBackgroundMode eMode, COLORREF colorTransparency)
+	{
+		return (eMode == BGM_White) ? RGB(255, 255, 255) : (eMode == BGM_Color) ? colorTransparency : RGB(0, 0, 0);
+	}
+
 	// Pixel is ARGB. Blends the pixel onto the background mode at the screen position (nX, nY), the checkerboard
-	// is tiled by screen position so it stays still when panning. Returns an opaque ARGB pixel.
-	static inline uint32 CompositePixelOnBackground(uint32 pixel, EBackgroundMode eMode, int nX, int nY)
+	// is tiled by screen position so it stays still when panning. colorTransparency is the background of mode BGM_Color.
+	// Returns an opaque ARGB pixel.
+	static inline uint32 CompositePixelOnBackground(uint32 pixel, EBackgroundMode eMode, COLORREF colorTransparency, int nX, int nY)
 	{
 		uint32 alpha = pixel & 0xFF000000;
 		if (alpha == 0xFF000000)
 			return pixel;
 
-		uint32 bg;
-		if (eMode == BGM_White) {
-			bg = 255;
-		} else if (eMode == BGM_Checkerboard) {
-			bg = (((nX >> 4) + (nY >> 4)) & 1) ? 204 : 255; // 16x16 light gray cells
+		uint32 bgR, bgG, bgB;
+		if (eMode == BGM_Checkerboard) {
+			bgR = bgG = bgB = (((nX >> 4) + (nY >> 4)) & 1) ? 204 : 255; // 16x16 light gray cells
 		} else {
-			bg = 0;
+			COLORREF bg = BackgroundModeColor(eMode, colorTransparency);
+			bgR = GetRValue(bg); bgG = GetGValue(bg); bgB = GetBValue(bg);
 		}
 		// integer blend (c * a + bg * (255 - a)) / 255, rounded; this runs for every pixel of every repaint
 		uint32 a = alpha >> 24;
-		uint32 bgPart = bg * (255 - a) + 128;
-		uint32 r = ((pixel >> 16) & 0xFF) * a + bgPart;
-		uint32 g = ((pixel >> 8) & 0xFF) * a + bgPart;
-		uint32 b = (pixel & 0xFF) * a + bgPart;
+		uint32 r = ((pixel >> 16) & 0xFF) * a + bgR * (255 - a) + 128;
+		uint32 g = ((pixel >> 8) & 0xFF) * a + bgG * (255 - a) + 128;
+		uint32 b = (pixel & 0xFF) * a + bgB * (255 - a) + 128;
 		r = (r + (r >> 8)) >> 8;
 		g = (g + (g >> 8)) >> 8;
 		b = (b + (b >> 8)) >> 8;
@@ -166,7 +172,7 @@ namespace Helpers {
 
 	// Copy of a 32 bpp DIB with its transparent pixels blended onto the background mode, tiled from the screen position
 	// (nScreenX, nScreenY) of the DIB. Returns NULL if out of memory, the caller deletes the copy with delete[].
-	uint32* CopyDIBOnBackground(const void* pDIBPixels, int nWidth, int nHeight, EBackgroundMode eMode, int nScreenX, int nScreenY);
+	uint32* CopyDIBOnBackground(const void* pDIBPixels, int nWidth, int nHeight, EBackgroundMode eMode, COLORREF colorTransparency, int nScreenX, int nScreenY);
 
 	// Copy of a 32 bpp DIB with its transparent pixels blended onto the color, used when the pixels leave the viewer
 	// (save, copy, print). Returns NULL if out of memory, the caller deletes the copy with delete[].

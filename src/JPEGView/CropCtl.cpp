@@ -107,7 +107,7 @@ void CCropCtl::SetImageSize(CSize sizeImage) {
 	}
 }
 
-void CCropCtl::OnPaint(CPaintDC& dc) {
+void CCropCtl::OnPaint(CDC& dc) {
 	if (m_bCropping) {
 		CPoint mousePos = m_pMainDlg->GetMousePos();
 		double dZoom = m_pMainDlg->GetZoom();

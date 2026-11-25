@@ -8,6 +8,10 @@
 #include "SettingsProvider.h"
 #include "ReaderBMP.h"
 #include "ReaderTGA.h"
+#include "DDSWrapper.h"
+#include "HDRWrapper.h"
+#include "HDRImage.h"
+#include "HDRDisplay.h"
 #include "BasicProcessing.h"
 #include "dcraw_mod.h"
 #include "TJPEGWrapper.h"
@@ -35,6 +39,15 @@ volatile int CImageLoadThread::m_curHandle = 0;
 /////////////////////////////////////////////////////////////////////////////////////////////
 
 // find image format of this image by reading some header bytes
+// Keeps the linear light pixels of an HDR photo with the image if the HDR display output will show them
+static void AttachLinearImage(CJPEGImage* pImage, HDR::CLinearImage* pLinear, bool bIsAnimation) {
+	if (pLinear != NULL && pImage != NULL && !bIsAnimation && HDR::CDisplayOutput::IsOutputWanted()) {
+		pImage->SetLinearImage(pLinear);
+	} else {
+		delete pLinear;
+	}
+}
+
 static EImageFormat GetImageFormat(LPCTSTR sFileName) {
 	FILE *fptr;
 	if ((fptr = _tfopen(sFileName, _T("rb"))) == NULL) {
@@ -80,6 +93,10 @@ static EImageFormat GetImageFormat(LPCTSTR sFileName) {
 		return IF_QOI;
 	} else if (header[0] == '8' && header[1] == 'B' && header[2] == 'P' && header[3] == 'S') {
 		return IF_PSD;
+	} else if (nSize >= 4 && memcmp(header, "DDS ", 4) == 0) {
+		return IF_DDS;
+	} else if ((nSize >= 10 && memcmp(header, "#?RADIANCE", 10) == 0) || (nSize >= 6 && memcmp(header, "#?RGBE", 6) == 0)) {
+		return IF_HDR;
 	}
 
 	// default fallback if no matches based on magic bytes
@@ -270,7 +287,8 @@ void CImageLoadThread::ProcessRequest(CRequestBase& request) {
 	CRequest& rq = (CRequest&)request;
 	double dStartTime = Helpers::GetExactTickCount(); 
 	// Get image format and read the image
-	switch (GetImageFormat(rq.FileName)) {
+	EImageFormat eImageFormat = GetImageFormat(rq.FileName);
+	switch (eImageFormat) {
 		case IF_JPEG :
 			DeleteCachedGDIBitmap();
 			DeleteCachedWebpDecoder();
@@ -349,6 +367,15 @@ void CImageLoadThread::ProcessRequest(CRequestBase& request) {
 			ProcessReadRAWRequest(&rq);
 			break;
 #endif
+		case IF_DDS:
+		case IF_HDR:
+			DeleteCachedGDIBitmap();
+			DeleteCachedWebpDecoder();
+			DeleteCachedPngDecoder();
+			DeleteCachedJxlDecoder();
+			DeleteCachedAvifDecoder();
+			ProcessReadDDSorHDRRequest(&rq, eImageFormat);
+			break;
 		case IF_QOI:
 			DeleteCachedGDIBitmap();
 			DeleteCachedWebpDecoder();
@@ -776,7 +803,8 @@ void CImageLoadThread::ProcessReadJXLRequest(CRequest* request) {
 			int nWidth, nHeight, nBPP, nFrameCount, nFrameTimeMs;
 			bool bHasAnimation;
 			void* pEXIFData;
-			uint8* pPixelData = (uint8*)JxlReader::ReadImage(nWidth, nHeight, nBPP, bHasAnimation, nFrameCount, nFrameTimeMs, pEXIFData, request->OutOfMemory, pBuffer, nFileSize);
+			HDR::CLinearImage* pLinear = NULL;
+			uint8* pPixelData = (uint8*)JxlReader::ReadImage(nWidth, nHeight, nBPP, bHasAnimation, nFrameCount, nFrameTimeMs, pEXIFData, request->OutOfMemory, pBuffer, nFileSize, &pLinear);
 			if (pPixelData != NULL) {
 				if (bHasAnimation)
 					m_sLastJxlFileName = sFileName;
@@ -784,7 +812,9 @@ void CImageLoadThread::ProcessReadJXLRequest(CRequest* request) {
 
 				request->Image = new CJPEGImage(nWidth, nHeight, pPixelData, pEXIFData, 4, 0, IF_JXL, bHasAnimation, request->FrameIndex, nFrameCount, nFrameTimeMs);
 				free(pEXIFData);
+				AttachLinearImage(request->Image, pLinear, bHasAnimation);
 			} else {
+				delete pLinear;
 				DeleteCachedJxlDecoder();
 			}
 		}
@@ -846,8 +876,9 @@ void CImageLoadThread::ProcessReadAVIFRequest(CRequest* request) {
 			int nWidth, nHeight, nBPP, nFrameCount, nFrameTimeMs;
 			bool bHasAnimation;
 			void* pEXIFData;
+			HDR::CLinearImage* pLinear = NULL;
 			uint8* pPixelData = (uint8*)AvifReader::ReadImage(nWidth, nHeight, nBPP, bHasAnimation, request->FrameIndex, 
-				nFrameCount, nFrameTimeMs, pEXIFData, request->OutOfMemory, pBuffer, nFileSize);
+				nFrameCount, nFrameTimeMs, pEXIFData, request->OutOfMemory, pBuffer, nFileSize, &pLinear);
 			if (pPixelData != NULL) {
 				if (bHasAnimation)
 					m_sLastAvifFileName = sFileName;
@@ -855,8 +886,10 @@ void CImageLoadThread::ProcessReadAVIFRequest(CRequest* request) {
 
 				request->Image = new CJPEGImage(nWidth, nHeight, pPixelData, pEXIFData, 4, 0, IF_AVIF, bHasAnimation, request->FrameIndex, nFrameCount, nFrameTimeMs);
 				free(pEXIFData);
+				AttachLinearImage(request->Image, pLinear, bHasAnimation);
 				bSuccess = true;
 			} else {
+				delete pLinear;
 				DeleteCachedAvifDecoder();
 			}
 		}
@@ -906,12 +939,16 @@ void CImageLoadThread::ProcessReadHEIFRequest(CRequest* request) {
 			nFrameCount = 1;
 			nFrameTimeMs = 0;
 			void* pEXIFData;
-			uint8* pPixelData = (uint8*)HeifReader::ReadImage(nWidth, nHeight, nBPP, nFrameCount, pEXIFData, request->OutOfMemory, request->FrameIndex, pBuffer, nFileSize);
+			HDR::CLinearImage* pLinear = NULL;
+			uint8* pPixelData = (uint8*)HeifReader::ReadImage(nWidth, nHeight, nBPP, nFrameCount, pEXIFData, request->OutOfMemory, request->FrameIndex, pBuffer, nFileSize, &pLinear);
 			if (pPixelData != NULL) {
 				// the alpha channel is kept, it is blended onto the selected background when painting
 
 				request->Image = new CJPEGImage(nWidth, nHeight, pPixelData, pEXIFData, nBPP, 0, IF_HEIF, false, request->FrameIndex, nFrameCount, nFrameTimeMs);
 				free(pEXIFData);
+				AttachLinearImage(request->Image, pLinear, false);
+			} else {
+				delete pLinear;
 			}
 		}
 	} catch(heif::Error he) {
@@ -968,6 +1005,46 @@ void CImageLoadThread::ProcessReadQOIRequest(CRequest* request) {
 					// the alpha channel is kept, it is blended onto the selected background when painting
 				}
 				request->Image = new CJPEGImage(nWidth, nHeight, pPixelData, NULL, nBPP, 0, IF_QOI, false, 0, 1, 0);
+			}
+		}
+	} catch (...) {
+		delete request->Image;
+		request->Image = NULL;
+		request->ExceptionError = true;
+	}
+	::CloseHandle(hFile);
+	delete[] pBuffer;
+}
+
+// DDS and Radiance HDR: both readers decode from a memory buffer into 32 bpp BGRA
+void CImageLoadThread::ProcessReadDDSorHDRRequest(CRequest* request, EImageFormat eFormat) {
+	HANDLE hFile = ::CreateFile(request->FileName, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
+	if (hFile == INVALID_HANDLE_VALUE) {
+		return;
+	}
+	char* pBuffer = NULL;
+	try {
+		long long nFileSize = Helpers::GetFileSize(hFile);
+		if (nFileSize <= 0 || nFileSize > MAX_PNG_FILE_SIZE) {
+			request->OutOfMemory = nFileSize > 0;
+			::CloseHandle(hFile);
+			return;
+		}
+		pBuffer = new(std::nothrow) char[(size_t)nFileSize];
+		if (pBuffer == NULL) {
+			request->OutOfMemory = true;
+			::CloseHandle(hFile);
+			return;
+		}
+		DWORD nNumBytesRead = 0;
+		if (::ReadFile(hFile, pBuffer, (DWORD)nFileSize, &nNumBytesRead, NULL) && nNumBytesRead == nFileSize) {
+			int nWidth = 0, nHeight = 0, nBPP = 4;
+			void* pPixelData = (eFormat == IF_DDS) ?
+				DdsReader::ReadImage(nWidth, nHeight, nBPP, request->OutOfMemory, pBuffer, (int)nFileSize) :
+				HdrReader::ReadImage(nWidth, nHeight, nBPP, request->OutOfMemory, pBuffer, (int)nFileSize);
+			if (pPixelData != NULL) {
+				// the alpha channel (DDS) is kept, it is blended onto the selected background when painting
+				request->Image = new CJPEGImage(nWidth, nHeight, pPixelData, NULL, nBPP, 0, eFormat, false, 0, 1, 0);
 			}
 		}
 	} catch (...) {

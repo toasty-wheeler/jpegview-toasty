@@ -58,6 +58,8 @@
 #include "ThumbnailCache.h"
 #include "ThermalNavigator.h"
 #include "FlirThermal.h"
+#include "HDRImage.h"
+#include "HDRDisplay.h"
 
 //////////////////////////////////////////////////////////////////////////////////////////////
 // Constants
@@ -301,6 +303,8 @@ CMainDlg::CMainDlg(bool bForceFullScreen) {
 	m_nGotoSteps = 1;
 	m_nCurrentFrameOverride = -1;
 	m_pThermalNavigator = new CThermalNavigator(this);
+	m_pHDROutput = NULL;
+	m_hdrFrame.Valid = false;
 	m_thermalMenuPoint.X = m_thermalMenuPoint.Y = 0.0;
 	m_bThermalMenuPointValid = false;
 	m_pCropCtl = new CCropCtl(this);
@@ -320,6 +324,7 @@ CMainDlg::~CMainDlg() {
 	delete m_pPanelMgr; // this will delete all panel controllers and all panels
 	delete m_pKeyMap;
 	delete m_pThermalNavigator;
+	delete m_pHDROutput;
 	// a thumbnail extractor that hangs must not block closing, the process ends anyway
 	if (m_pThumbnailCache != NULL && m_pThumbnailCache->Stop(2000)) delete m_pThumbnailCache;
 }
@@ -335,6 +340,10 @@ void CMainDlg::SetStartupInfo(LPCTSTR sStartupFile, int nAutostartSlideShow, Hel
 
 LRESULT CMainDlg::OnInitDialog(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM /*lParam*/, BOOL& /*bHandled*/) {	
 	UpdateWindowTitle();
+
+	// HDR photos: the image loaders ask if the linear pixels are needed for the HDR display output on the monitor of this window
+	HDR::CDisplayOutput::SetMode((HDR::EDisplayMode)CSettingsProvider::This().HDRDisplay());
+	HDR::CDisplayOutput::SetMainWindow(m_hWnd);
 
 	// set the scaling of the screen (DPI) compared to 96 DPI (design value)
 	CPaintDC dc(this->m_hWnd);
@@ -484,7 +493,16 @@ LRESULT CMainDlg::OnPaint(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM /*lParam*/, B
 	}
 
 	CPaintDC dc(m_hWnd);
+	if (PaintHDR()) {
+		return 0;
+	}
+	PaintMainDlg(dc, dc.m_ps.rcPaint, 0);
+	return 0;
+}
+
+void CMainDlg::PaintMainDlg(CDC& dc, const CRect& paintRect, int nHDRPass) {
 	m_dRealizedZoom = 1.0;
+	m_hdrFrame.Valid = false;
 
 	this->GetClientRect(&m_clientRect);
 	CRect imageProcessingArea = m_pImageProcPanelCtl->PanelRect();
@@ -500,7 +518,7 @@ LRESULT CMainDlg::OnPaint(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM /*lParam*/, B
 	std::list<CRect> excludedClippingRects;
 
 	// Panels are handled over memory DCs to eliminate flickering
-	CPaintMemDCMgr memDCMgr(dc);
+	CPaintMemDCMgr memDCMgr(dc, paintRect);
 
 	if (m_pCurrentImage == NULL) {
 		m_pPanelMgr->OnPrePaint(dc);
@@ -570,12 +588,29 @@ LRESULT CMainDlg::OnPaint(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM /*lParam*/, B
 			BITMAPINFO bmInfo{ 0 };
 			// Transparent images are blended onto the selected background (black, white or checkerboard)
 			uint32* pComposited = NULL;
-			if (m_pCurrentImage->HasAlphaChannel()) {
-				pComposited = Helpers::CopyDIBOnBackground(pDIBData, clippedSize.cx, clippedSize.cy, CSettingsProvider::This().BackgroundMode(),
-					(m_clientRect.Width() - clippedSize.cx) / 2 + m_DIBOffsets.x, (m_clientRect.Height() - clippedSize.cy) / 2 + m_DIBOffsets.y);
+			CPoint checkerStart((m_clientRect.Width() - clippedSize.cx) / 2 + m_DIBOffsets.x, (m_clientRect.Height() - clippedSize.cy) / 2 + m_DIBOffsets.y);
+			if (nHDRPass != 0) {
+				// HDR display output: the image area is painted black, respectively white, the difference shows where the image is visible
+				size_t nPixels = (size_t)clippedSize.cx * clippedSize.cy;
+				pComposited = new(std::nothrow) uint32[nPixels];
+				if (pComposited != NULL) {
+					std::fill(pComposited, pComposited + nPixels, (nHDRPass == 1) ? 0xFF000000 : 0xFFFFFFFF);
+				}
+			} else if (m_pCurrentImage->HasAlphaChannel()) {
+				pComposited = Helpers::CopyDIBOnBackground(pDIBData, clippedSize.cx, clippedSize.cy, CSettingsProvider::This().BackgroundMode(), CSettingsProvider::This().ColorTransparency(),
+					checkerStart.x, checkerStart.y);
 			}
 			void* pDIBToPaint = (pComposited != NULL) ? pComposited : pDIBData;
 			CPoint ptDIBStart = HelpersGUI::DrawDIB32bppWithBlackBorders(dc, bmInfo, pDIBToPaint, backBrush, m_clientRect, clippedSize, m_DIBOffsets);
+			if (nHDRPass != 0) {
+				// previews of the processing panels are not shown with the HDR output
+				m_hdrFrame.Valid = pComposited != NULL && !m_pUnsharpMaskPanelCtl->IsVisible() && !m_pRotationPanelCtl->IsVisible() && !m_pTiltCorrectionPanelCtl->IsVisible();
+				m_hdrFrame.DIBStart = ptDIBStart;
+				m_hdrFrame.ClippedSize = clippedSize;
+				m_hdrFrame.OffsetInImage = offsetsInImage;
+				m_hdrFrame.VirtualSize = newSize;
+				m_hdrFrame.CheckerShift = checkerStart - ptDIBStart;
+			}
 			// The DIB is also blitted into the memory DCs of the panels
 			memDCMgr.BlitImageToMemDC(pDIBToPaint, &bmInfo, ptDIBStart, m_pNavPanelCtl->CurrentBlendingFactor());
 			delete[] pComposited;
@@ -631,7 +666,104 @@ LRESULT CMainDlg::OnPaint(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM /*lParam*/, B
 	m_pPanelMgr->OnPostPaint(dc);
 
 	SetCursorForMoveSection();
+}
 
+bool CMainDlg::IsHDROutputShown() const {
+	return m_pHDROutput != NULL && m_pHDROutput->IsVisible();
+}
+
+bool CMainDlg::PaintHDR() {
+	const HDR::CLinearImage* pLinear = (m_pCurrentImage != NULL) ? m_pCurrentImage->GetLinearImage() : NULL;
+	CRect clientRect;
+	GetClientRect(&clientRect);
+	bool bOK = pLinear != NULL && clientRect.Width() > 0 && clientRect.Height() > 0 && HDR::CDisplayOutput::IsOutputWanted();
+	if (bOK) {
+		// The window is painted twice into memory, with the image area black and white. The HDR output shows
+		// the black version as the user interface and the HDR image where the two differ.
+		int nWidth = clientRect.Width(), nHeight = clientRect.Height();
+		BITMAPINFO bmInfo = { 0 };
+		bmInfo.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+		bmInfo.bmiHeader.biWidth = nWidth;
+		bmInfo.bmiHeader.biHeight = -nHeight; // top-down
+		bmInfo.bmiHeader.biPlanes = 1;
+		bmInfo.bmiHeader.biBitCount = 32;
+		bmInfo.bmiHeader.biCompression = BI_RGB;
+		HBITMAP hBitmaps[2] = { NULL, NULL };
+		void* pBits[2] = { NULL, NULL };
+		CDC memDC;
+		memDC.CreateCompatibleDC(NULL);
+		for (int i = 0; i < 2 && bOK; i++) {
+			hBitmaps[i] = ::CreateDIBSection(memDC, &bmInfo, DIB_RGB_COLORS, &pBits[i], NULL, 0);
+			if (hBitmaps[i] == NULL) {
+				bOK = false;
+				break;
+			}
+			HBITMAP hOldBitmap = memDC.SelectBitmap(hBitmaps[i]);
+			PaintMainDlg(memDC, clientRect, i + 1);
+			memDC.SelectBitmap(hOldBitmap);
+			bOK = m_hdrFrame.Valid;
+		}
+		::GdiFlush();
+		// rotated, cropped or otherwise changed images are shown normally
+		const CRotationParams& rotation = m_pCurrentImage->GetRotationParams();
+		bOK = bOK && rotation.Rotation == 0 && rotation.FreeRotation == 0.0 &&
+			m_pCurrentImage->OrigWidth() == pLinear->Width() && m_pCurrentImage->OrigHeight() == pLinear->Height() &&
+			m_hdrFrame.VirtualSize.cx > 0 && m_hdrFrame.VirtualSize.cy > 0;
+		if (bOK) {
+			if (m_pHDROutput == NULL) {
+				m_pHDROutput = new HDR::CDisplayOutput(m_hWnd);
+			}
+			HDR::CFrameParams params;
+			params.ClientWidth = nWidth;
+			params.ClientHeight = nHeight;
+			params.UIBlack = (const uint32_t*)pBits[0];
+			params.UIWhite = (const uint32_t*)pBits[1];
+			params.ScaleX = (double)pLinear->Width() / m_hdrFrame.VirtualSize.cx;
+			params.ScaleY = (double)pLinear->Height() / m_hdrFrame.VirtualSize.cy;
+			params.ImageLeft = m_hdrFrame.DIBStart.x;
+			params.ImageTop = m_hdrFrame.DIBStart.y;
+			params.ImageX = m_hdrFrame.OffsetInImage.x * params.ScaleX;
+			params.ImageY = m_hdrFrame.OffsetInImage.y * params.ScaleY;
+			params.BackgroundMode = (int)CSettingsProvider::This().BackgroundMode();
+			params.BackgroundColor = Helpers::BackgroundModeColor(CSettingsProvider::This().BackgroundMode(), CSettingsProvider::This().ColorTransparency());
+			params.CheckerShiftX = m_hdrFrame.CheckerShift.x;
+			params.CheckerShiftY = m_hdrFrame.CheckerShift.y;
+			bOK = m_pHDROutput->Render(*pLinear, params);
+		}
+		for (int i = 0; i < 2; i++) {
+			if (hBitmaps[i] != NULL) ::DeleteObject(hBitmaps[i]);
+		}
+	}
+	if (!bOK && IsHDROutputShown()) {
+		m_pHDROutput->Hide();
+		this->Invalidate(FALSE); // the GDI content of the window was not updated while the HDR output was shown
+	}
+	return bOK;
+}
+
+const UINT CMainDlg::s_nSettingsChangedMessage = ::RegisterWindowMessage(_T("JPEGViewSettingsChanged"));
+
+LRESULT CMainDlg::OnActivate(UINT /*uMsg*/, WPARAM wParam, LPARAM /*lParam*/, BOOL& bHandled) {
+	// the INI file may have been edited while JPEGView was in the background
+	if (LOWORD(wParam) != WA_INACTIVE && CSettingsProvider::This().ReloadAppearanceSettingsIfChanged()) {
+		this->Invalidate(FALSE);
+	}
+	bHandled = FALSE;
+	return 0;
+}
+
+LRESULT CMainDlg::OnSettingsChanged(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM /*lParam*/, BOOL& /*bHandled*/) {
+	if (CSettingsProvider::This().ReloadAppearanceSettingsIfChanged()) {
+		this->Invalidate(FALSE);
+	}
+	return 0;
+}
+
+LRESULT CMainDlg::OnDisplayChange(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM /*lParam*/, BOOL& bHandled) {
+	// Windows HDR may have been turned on or off
+	HDR::CDisplayOutput::InvalidateDisplayInfo();
+	this->Invalidate(FALSE);
+	bHandled = FALSE;
 	return 0;
 }
 
@@ -667,7 +799,7 @@ void CMainDlg::PaintToDC(CDC& dc) {
 			BITMAPINFO bmInfo{ 0 };
 			uint32* pComposited = NULL;
 			if (pCurrentImage->HasAlphaChannel()) {
-				pComposited = Helpers::CopyDIBOnBackground(pDIBData, clippedSize.cx, clippedSize.cy, CSettingsProvider::This().BackgroundMode(),
+				pComposited = Helpers::CopyDIBOnBackground(pDIBData, clippedSize.cx, clippedSize.cy, CSettingsProvider::This().BackgroundMode(), CSettingsProvider::This().ColorTransparency(),
 					(m_clientRect.Width() - clippedSize.cx) / 2, (m_clientRect.Height() - clippedSize.cy) / 2);
 			}
 			CPoint ptDIBStart = HelpersGUI::DrawDIB32bppWithBlackBorders(dc, bmInfo, (pComposited != NULL) ? pComposited : pDIBData, backBrush, m_clientRect, clippedSize, CPoint(0, 0));
@@ -1223,6 +1355,9 @@ LRESULT CMainDlg::OnKeyDown(UINT /*uMsg*/, WPARAM wParam, LPARAM /*lParam*/, BOO
 		if (nCommand <= 0 && wParam == 'B' && !bAlt && !bCtrl && !bShift) {
 			nCommand = IDM_TOGGLE_BACKGROUND; // also works with key map files older than background switching
 		}
+		if (nCommand <= 0 && wParam == 'H' && !bAlt && !bCtrl && !bShift) {
+			nCommand = IDM_TOGGLE_HDR; // also works with key map files older than the HDR output
+		}
 		if (nCommand > 0) {
 			bHandled = true;
 			ExecuteCommand(nCommand);
@@ -1512,9 +1647,14 @@ LRESULT CMainDlg::OnContextMenu(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM lParam,
 	::AppendMenu(hMenuBackground, MF_STRING, IDM_BACKGROUND_BLACK, CNLS::GetString(_T("Black")));
 	::AppendMenu(hMenuBackground, MF_STRING, IDM_BACKGROUND_WHITE, CNLS::GetString(_T("White")));
 	::AppendMenu(hMenuBackground, MF_STRING, IDM_BACKGROUND_CHECKERBOARD, CNLS::GetString(_T("Checkerboard")));
+	COLORREF colorTransparency = CSettingsProvider::This().ColorTransparency();
+	CString sTransparencyColor;
+	sTransparencyColor.Format(_T("%s (%d %d %d)"), CNLS::GetString(_T("Transparency color")), GetRValue(colorTransparency), GetGValue(colorTransparency), GetBValue(colorTransparency));
+	::AppendMenu(hMenuBackground, MF_STRING, IDM_BACKGROUND_COLOR, sTransparencyColor);
 	Helpers::EBackgroundMode eBackgroundMode = CSettingsProvider::This().BackgroundMode();
-	::CheckMenuRadioItem(hMenuBackground, IDM_BACKGROUND_BLACK, IDM_BACKGROUND_CHECKERBOARD,
-		(eBackgroundMode == Helpers::BGM_White) ? IDM_BACKGROUND_WHITE : (eBackgroundMode == Helpers::BGM_Checkerboard) ? IDM_BACKGROUND_CHECKERBOARD : IDM_BACKGROUND_BLACK, MF_BYCOMMAND);
+	::CheckMenuRadioItem(hMenuBackground, IDM_BACKGROUND_BLACK, IDM_BACKGROUND_COLOR,
+		(eBackgroundMode == Helpers::BGM_White) ? IDM_BACKGROUND_WHITE : (eBackgroundMode == Helpers::BGM_Checkerboard) ? IDM_BACKGROUND_CHECKERBOARD :
+		(eBackgroundMode == Helpers::BGM_Color) ? IDM_BACKGROUND_COLOR : IDM_BACKGROUND_BLACK, MF_BYCOMMAND);
 	::AppendMenu(hMenuTrackPopup, MF_SEPARATOR, 0, NULL);
 	::AppendMenu(hMenuTrackPopup, MF_STRING | MF_POPUP, (UINT_PTR)hMenuBackground, CNLS::GetString(_T("Background for transparent images")));
 	::AppendMenu(hMenuTrackPopup, MF_STRING | ((m_pCurrentImage == NULL || m_pCurrentImage->IsClipboardImage() || m_bMovieMode) ? MF_GRAYED : 0),
@@ -2143,15 +2283,40 @@ void CMainDlg::ExecuteCommand(int nCommand) {
 		case IDM_BACKGROUND_BLACK:
 		case IDM_BACKGROUND_WHITE:
 		case IDM_BACKGROUND_CHECKERBOARD:
+		case IDM_BACKGROUND_COLOR:
 			{
 				Helpers::EBackgroundMode eMode = CSettingsProvider::This().BackgroundMode();
 				if (nCommand == IDM_TOGGLE_BACKGROUND) {
-					eMode = (eMode == Helpers::BGM_Black) ? Helpers::BGM_White : (eMode == Helpers::BGM_White) ? Helpers::BGM_Checkerboard : Helpers::BGM_Black;
+					// TransparencyColor -> black -> white -> checkerboard, black and white are skipped when TransparencyColor is the same
+					COLORREF colorTransparency = CSettingsProvider::This().ColorTransparency();
+					const Helpers::EBackgroundMode cycle[] = { Helpers::BGM_Color, Helpers::BGM_Black, Helpers::BGM_White, Helpers::BGM_Checkerboard };
+					int nIndex = 0;
+					while (nIndex < 4 && cycle[nIndex] != eMode) nIndex++;
+					do {
+						nIndex = (nIndex + 1) % 4;
+					} while (cycle[nIndex] != Helpers::BGM_Color && cycle[nIndex] != Helpers::BGM_Checkerboard &&
+						Helpers::BackgroundModeColor(cycle[nIndex], colorTransparency) == colorTransparency);
+					eMode = cycle[nIndex];
 				} else {
-					eMode = (nCommand == IDM_BACKGROUND_WHITE) ? Helpers::BGM_White : (nCommand == IDM_BACKGROUND_CHECKERBOARD) ? Helpers::BGM_Checkerboard : Helpers::BGM_Black;
+					eMode = (nCommand == IDM_BACKGROUND_WHITE) ? Helpers::BGM_White : (nCommand == IDM_BACKGROUND_CHECKERBOARD) ? Helpers::BGM_Checkerboard :
+						(nCommand == IDM_BACKGROUND_COLOR) ? Helpers::BGM_Color : Helpers::BGM_Black;
 				}
 				CSettingsProvider::This().SetBackgroundMode(eMode);
 				this->Invalidate(FALSE);
+				break;
+			}
+		case IDM_TOGGLE_HDR:
+			{
+				// off, or back to the mode of the INI file (auto if that is off)
+				int nSetting = CSettingsProvider::This().HDRDisplay();
+				bool bTurnOn = HDR::CDisplayOutput::GetMode() == HDR::DISPLAY_OFF;
+				HDR::CDisplayOutput::SetMode(!bTurnOn ? HDR::DISPLAY_OFF : (nSetting == HDR::DISPLAY_OFF) ? HDR::DISPLAY_AUTO : (HDR::EDisplayMode)nSetting);
+				if (bTurnOn && m_pCurrentImage != NULL && m_pCurrentImage->GetLinearImage() == NULL && HDR::CDisplayOutput::IsOutputWanted() &&
+					(m_pCurrentImage->GetImageFormat() == IF_HEIF || m_pCurrentImage->GetImageFormat() == IF_AVIF || m_pCurrentImage->GetImageFormat() == IF_JXL)) {
+					ReloadImage(true); // the HDR pixels were not kept when loading
+				} else {
+					this->Invalidate(FALSE);
+				}
 				break;
 			}
 		case IDM_AUTO_ZOOM_FIT_NO_ZOOM:
@@ -3900,6 +4065,12 @@ bool CMainDlg::UseSlideShowTransitionEffect() {
 }
 
 void CMainDlg::AnimateTransition() {
+	if (IsHDROutputShown() || (m_pCurrentImage != NULL && m_pCurrentImage->GetLinearImage() != NULL && HDR::CDisplayOutput::IsOutputWanted())) {
+		// no transition effects with the HDR display output, the GDI painting would not be visible
+		this->Invalidate(FALSE);
+		this->UpdateWindow();
+		return;
+	}
 
 	int nFrameTimeMs = (m_eTransitionEffect >= Helpers::TE_RollLR || m_eTransitionEffect <= Helpers::TE_ScrollBT) ? 10 : 20;
 
@@ -4036,6 +4207,8 @@ void CMainDlg::CleanupAndTerminate() {
 	StopAnimation();
 	delete m_pJPEGProvider; // delete this early to properly shut down the loading threads
 	m_pJPEGProvider = NULL;
+	delete m_pHDROutput;
+	m_pHDROutput = NULL;
 	EndDialog(0);
 }
 	

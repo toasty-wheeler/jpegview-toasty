@@ -7,6 +7,7 @@
 #include "jxl/resizable_parallel_runner_cxx.h"
 #include "MaxImageDef.h"
 #include "ICCProfileTransform.h"
+#include "HDRImage.h"
 
 struct JxlReader::jxl_cache {
 	JxlDecoderPtr decoder;
@@ -19,6 +20,7 @@ struct JxlReader::jxl_cache {
 	int height;
 	void* transform;
 	std::vector<uint8_t> exif;
+	HDR::CSourceInfo hdr; // PQ or HLG images are decoded as float and tone-mapped
 };
 
 JxlReader::jxl_cache JxlReader::cache = { 0 };
@@ -58,7 +60,7 @@ bool JxlReader::DecodeJpegXlOneShot(const uint8_t* jxl, size_t size, std::vector
 	}
 
 	JxlBasicInfo info;
-	JxlPixelFormat format = { 4, JXL_TYPE_UINT8, JXL_NATIVE_ENDIAN, 0 };
+	JxlPixelFormat format = { 4, cache.hdr.IsHDR() ? JXL_TYPE_FLOAT : JXL_TYPE_UINT8, JXL_NATIVE_ENDIAN, 0 };
 	const constexpr size_t kChunkSize = 65536;
 	size_t output_pos = 0;
 
@@ -99,6 +101,27 @@ bool JxlReader::DecodeJpegXlOneShot(const uint8_t* jxl, size_t size, std::vector
 				icc_profile->data(), icc_profile->size())) {
 				return false;
 			}
+			// HDR transfer functions are handled by HDR::ConvertToSDR() instead of the ICC profile
+			cache.hdr = HDR::CSourceInfo();
+			JxlColorEncoding encoding;
+			if (JXL_DEC_SUCCESS == JxlDecoderGetColorAsEncodedProfile(cache.decoder.get(), JXL_COLOR_PROFILE_TARGET_DATA, &encoding) &&
+				(encoding.color_space == JXL_COLOR_SPACE_RGB || encoding.color_space == JXL_COLOR_SPACE_GRAY) && encoding.white_point == JXL_WHITE_POINT_D65) {
+				HDR::ETransfer transfer = HDR::TransferFromH273(encoding.transfer_function);
+				bool knownPrimaries = true;
+				if (encoding.color_space == JXL_COLOR_SPACE_GRAY) cache.hdr.Primaries = HDR::PRIMARIES_BT709; // gray is decoded to R = G = B
+				else if (encoding.primaries == JXL_PRIMARIES_2100) cache.hdr.Primaries = HDR::PRIMARIES_BT2020;
+				else if (encoding.primaries == JXL_PRIMARIES_P3) cache.hdr.Primaries = HDR::PRIMARIES_P3;
+				else if (encoding.primaries == JXL_PRIMARIES_SRGB) cache.hdr.Primaries = HDR::PRIMARIES_BT709;
+				else knownPrimaries = false;
+				if (knownPrimaries) {
+					cache.hdr.Transfer = transfer;
+					// 10000 is the default for PQ, it does not tell the real peak of the content
+					if (cache.info.intensity_target > 0.0f && cache.info.intensity_target < 10000.0f) {
+						cache.hdr.PeakNits = cache.info.intensity_target;
+					}
+				}
+			}
+			format.data_type = cache.hdr.IsHDR() ? JXL_TYPE_FLOAT : JXL_TYPE_UINT8;
 		} else if (status == JXL_DEC_FRAME) {
 			JxlFrameHeader header;
 			JxlDecoderGetFrameHeader(cache.decoder.get(), &header);
@@ -113,10 +136,11 @@ bool JxlReader::DecodeJpegXlOneShot(const uint8_t* jxl, size_t size, std::vector
 				JxlDecoderImageOutBufferSize(cache.decoder.get(), &format, &buffer_size)) {
 				return false;
 			}
-			if (buffer_size != cache.info.xsize * cache.info.ysize * 4) {
+			size_t bytesPerPixel = cache.hdr.IsHDR() ? 4 * sizeof(float) : 4;
+			if (buffer_size != (size_t)cache.info.xsize * cache.info.ysize * bytesPerPixel) {
 				return false;
 			}
-			pixels->resize(cache.info.xsize * cache.info.ysize * 4);
+			pixels->resize((size_t)cache.info.xsize * cache.info.ysize * bytesPerPixel);
 			void* pixels_buffer = (void*)pixels->data();
 			size_t pixels_buffer_size = pixels->size() * sizeof(uint8_t);
 			if (JXL_DEC_SUCCESS != JxlDecoderSetImageOutBuffer(cache.decoder.get(), &format,
@@ -182,8 +206,10 @@ void* JxlReader::ReadImage(int& width,
 	void*& exif_chunk,
 	bool& outOfMemory,
 	const void* buffer,
-	int sizebytes)
+	int sizebytes,
+	HDR::CLinearImage** ppLinear)
 {
+	if (ppLinear != NULL) *ppLinear = NULL;
 	outOfMemory = false;
 	width = height = 0;
 	nchannels = 4;
@@ -204,13 +230,21 @@ void* JxlReader::ReadImage(int& width,
 		outOfMemory = true;
 		return NULL;
 	}
-	if (cache.transform == NULL)
-		cache.transform = ICCProfileTransform::CreateTransform(icc_profile.data(), icc_profile.size(), ICCProfileTransform::FORMAT_RGBA);
-	if (!ICCProfileTransform::DoTransform(cache.transform, pixels.data(), pPixelData, width, height)) {
-		// RGBA -> BGRA conversion (with little-endian integers)
-		uint32_t* data = (uint32_t*)pixels.data();
-		for (int i = 0; i * sizeof(uint32_t) < size; i++) {
-			((uint32_t*)pPixelData)[i] = _rotr(_byteswap_ulong(data[i]), 8);
+	if (cache.hdr.IsHDR()) {
+		if (!HDR::ConvertToSDR((const float*)pixels.data(), width, height, 4, (size_t)width * 4 * sizeof(float), cache.hdr, pPixelData, ppLinear)) {
+			delete[] pPixelData;
+			outOfMemory = true;
+			return NULL;
+		}
+	} else {
+		if (cache.transform == NULL)
+			cache.transform = ICCProfileTransform::CreateTransform(icc_profile.data(), icc_profile.size(), ICCProfileTransform::FORMAT_RGBA);
+		if (!ICCProfileTransform::DoTransform(cache.transform, pixels.data(), pPixelData, width, height)) {
+			// RGBA -> BGRA conversion (with little-endian integers)
+			uint32_t* data = (uint32_t*)pixels.data();
+			for (int i = 0; i * sizeof(uint32_t) < size; i++) {
+				((uint32_t*)pPixelData)[i] = _rotr(_byteswap_ulong(data[i]), 8);
+			}
 		}
 	}
 

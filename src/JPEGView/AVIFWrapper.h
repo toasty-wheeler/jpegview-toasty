@@ -3,6 +3,8 @@
 
 #include <vector>
 
+namespace HDR { class CLinearImage; }
+
 class AvifReader
 {
 public:
@@ -17,7 +19,8 @@ public:
 		void*& exif_chunk, // Pointer to Exif data (must be freed by caller)
 		bool& outOfMemory, // set to true when no memory to read image
 		const void* buffer, // memory address containing jxl compressed data.
-		int sizebytes); // size of jxl compressed data
+		int sizebytes, // size of jxl compressed data
+		HDR::CLinearImage** ppLinear = NULL); // HDR images (PQ/HLG) are tone-mapped, this receives their linear light pixels (or NULL), caller deletes
 
 	static void DeleteCache();
 

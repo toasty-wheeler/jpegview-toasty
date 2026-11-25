@@ -296,7 +296,11 @@ void CNavigationPanelCtl::DoNavPanelAnimation() {
 		bTerminate = m_fCurrentBlendingFactorNavPanel >= CSettingsProvider::This().BlendFactorNavPanel();
 	}
 
-	if (bDoAnimation) {
+	if (bDoAnimation && m_pMainDlg->IsHDROutputShown()) {
+		// the HDR output shows the window, painting on the screen would not be visible
+		CRect rectNavPanel = PanelRect();
+		m_pMainDlg->InvalidateRect(&rectNavPanel, FALSE);
+	} else if (bDoAnimation) {
 		CRect rectNavPanel = PanelRect();
 		CDC screenDC = m_pMainDlg->GetDC();
 		void* pDIBData = pCurrentImage->DIBPixelsLastProcessed(false);
@@ -321,7 +325,7 @@ void CNavigationPanelCtl::DoNavPanelAnimation() {
 			int yDest = (m_pMainDlg->ClientRect().Height() - pCurrentImage->DIBHeight()) / 2 + m_pMainDlg->GetDIBOffset().y;
 			// transparent images on the selected background, like in the main view
 			uint32* pComposited = pCurrentImage->HasAlphaChannel() ?
-				Helpers::CopyDIBOnBackground(pDIBData, pCurrentImage->DIBWidth(), pCurrentImage->DIBHeight(), CSettingsProvider::This().BackgroundMode(), xDest, yDest) : NULL;
+				Helpers::CopyDIBOnBackground(pDIBData, pCurrentImage->DIBWidth(), pCurrentImage->DIBHeight(), CSettingsProvider::This().BackgroundMode(), CSettingsProvider::This().ColorTransparency(), xDest, yDest) : NULL;
 			CPaintMemDCMgr::BitBltBlended(*m_pMemDCAnimation, screenDC, CSize(rectNavPanel.Width(), rectNavPanel.Height()), (pComposited != NULL) ? pComposited : pDIBData, &bmInfo,
 								  CPoint(xDest - rectNavPanel.left, yDest - rectNavPanel.top), CSize(pCurrentImage->DIBWidth(), pCurrentImage->DIBHeight()),
 								  *m_pNavPanel, CPoint(-rectNavPanel.left, -rectNavPanel.top), m_fCurrentBlendingFactorNavPanel);

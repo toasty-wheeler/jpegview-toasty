@@ -42,7 +42,7 @@ public:
 	void SetCropMode(CropMode eMode) { m_eCropMode = eMode; }
 	//CropMode GetCropMode() { return m_eCropMode; }
 
-	void OnPaint(CPaintDC& dc); // paints cropping rectangle when in cropping
+	void OnPaint(CDC& dc); // paints cropping rectangle when in cropping
 	bool OnTimer(int nTimerId);
 
 	// nX, nY is the current mouse coordinate

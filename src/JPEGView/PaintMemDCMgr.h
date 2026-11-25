@@ -9,10 +9,12 @@ class CPanel;
 // This eliminates flickering.
 class CPaintMemDCMgr {
 public:
-	CPaintMemDCMgr(CPaintDC& paintDC);
+	CPaintMemDCMgr(CDC& paintDC, const CRect& paintRect);
 	~CPaintMemDCMgr();
 
-	CPaintDC& GetPaintDC() { return m_paintDC; }
+	CDC& GetPaintDC() { return m_paintDC; }
+	// Rectangle that needs painting (the update rectangle of WM_PAINT)
+	const CRect& GetPaintRect() const { return m_paintRect; }
 
 	// Excludes, respectively includes the given list of rectangles into the clipping region
 	static void ExcludeFromClippingRegion(CDC & paintDC, const std::list<CRect>& listExcludedRects);
@@ -47,7 +49,8 @@ private:
 		CRect DisplayRect;
 	};
 
-	CPaintDC& m_paintDC;
+	CDC& m_paintDC;
+	CRect m_paintRect;
 	int m_nNumElems;
 	CManagedRegion m_managedRegions[MAX_REGIONS_CPaintMemDCMgr];
 };

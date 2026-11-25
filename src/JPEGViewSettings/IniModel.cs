@@ -257,6 +257,22 @@ namespace JPEGViewSettings
             else s.UserValue = value;
         }
 
+        // Settings that a running JPEGView applies without restarting (CSettingsProvider::ReloadAppearanceSettingsIfChanged)
+        public static readonly HashSet<string> LiveKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "BackgroundMode", "TransparencyColor", "BackgroundColor" };
+
+        // Tells running JPEGView windows that the INI file changed
+        public static void NotifyJPEGView()
+        {
+            uint msg = RegisterWindowMessage("JPEGViewSettingsChanged");
+            if (msg != 0) PostMessage(new IntPtr(0xFFFF) /* HWND_BROADCAST */, msg, IntPtr.Zero, IntPtr.Zero);
+        }
+
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        static extern uint RegisterWindowMessage(string name);
+
+        [DllImport("user32.dll")]
+        static extern bool PostMessage(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
+
         [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
         static extern bool WritePrivateProfileString(string section, string key, string value, string fileName);
     }
@@ -279,7 +295,8 @@ namespace JPEGViewSettings
             ["DeleteConfirmation"] = C(false, "Never", "OnlyWhenNoRecycleBin", "Always"),
             ["DefaultSaveFormat"] = C(false, "jpg", "bmp", "png", "tif", "webp"),
             ["IniEditor"] = C(true, "%exepath%JPEGViewSettings.exe", "notepad", "system"),
-            ["BackgroundMode"] = C(false, "Black", "White", "Checkerboard"),
+            ["BackgroundMode"] = C(false, "Color", "Black", "White", "Checkerboard"),
+            ["HDRDisplay"] = C(false, "Auto", "Off", "Force"),
             ["DisplayFullSizeRAW"] = C(false, "0", "1", "2", "3"),
             ["DisplayMonitor"] = C(true, "-1", "0", "1", "2"),
             ["CPUCoresUsed"] = C(false, "0", "1", "2", "3", "4"),

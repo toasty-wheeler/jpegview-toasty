@@ -775,6 +775,10 @@ EImageFormat GetImageFormat(LPCTSTR sFileName) {
 			return IF_QOI;
 		} else if (_tcsicmp(sEnding, _T("PSD")) == 0) {
 			return IF_PSD;
+		} else if (_tcsicmp(sEnding, _T("DDS")) == 0) {
+			return IF_DDS;
+		} else if (_tcsicmp(sEnding, _T("HDR")) == 0 || _tcsicmp(sEnding, _T("RGBE")) == 0) {
+			return IF_HDR;
 		} else if (IsInFileEndingList(CSettingsProvider::This().FilesProcessedByWIC(), sEnding)) {
 			return IF_WIC;
 		} else if (IsInFileEndingList(CSettingsProvider::This().FileEndingsRAW(), sEnding)) {
@@ -971,7 +975,7 @@ int GetWindowsVersion() {
 	return osvi.dwMajorVersion * 100 + osvi.dwMinorVersion;
 }
 
-uint32* CopyDIBOnBackground(const void* pDIBPixels, int nWidth, int nHeight, EBackgroundMode eMode, int nScreenX, int nScreenY) {
+uint32* CopyDIBOnBackground(const void* pDIBPixels, int nWidth, int nHeight, EBackgroundMode eMode, COLORREF colorTransparency, int nScreenX, int nScreenY) {
 	if (pDIBPixels == NULL || nWidth <= 0 || nHeight <= 0) {
 		return NULL;
 	}
@@ -984,7 +988,7 @@ uint32* CopyDIBOnBackground(const void* pDIBPixels, int nWidth, int nHeight, EBa
 		const uint32* pSourceRow = pSource + y * nWidth;
 		uint32* pTargetRow = pCopy + y * nWidth;
 		for (int x = 0; x < nWidth; x++) {
-			pTargetRow[x] = CompositePixelOnBackground(pSourceRow[x], eMode, nScreenX + x, nScreenY + y);
+			pTargetRow[x] = CompositePixelOnBackground(pSourceRow[x], eMode, colorTransparency, nScreenX + x, nScreenY + y);
 		}
 	}
 	return pCopy;

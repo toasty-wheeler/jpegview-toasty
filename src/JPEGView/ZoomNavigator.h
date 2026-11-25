@@ -28,7 +28,7 @@ public:
 	// Gets the visible rectangle in float coordinates (normalized to 0..1) relative to full image
 	static CRectF GetVisibleRect(CSize sizeFull, CSize sizeClipped, CPoint offset);
 
-	// Gets the position of the navigator rectangle (thumbnail image rect) în client coordinates.
+	// Gets the position of the navigator rectangle (thumbnail image rect) ï¿½n client coordinates.
 	// The zoom navigator is placed relative to the image processing panel rectangle (panelRect) and
 	// the navigator panel rectangle (navigatorRect)
 	static CRect GetNavigatorRect(CJPEGImage* pImage, const CRect& panelRect, const CRect& navigatorRect);
@@ -40,7 +40,7 @@ public:
 	void PaintZoomNavigator(CJPEGImage* pImage, const CRectF& visRect, const CRect& navigatorRect,
 		const CPoint& mousePt,
 		const CImageProcessingParams& processingParams,
-		EProcessingFlags eFlags, double dRotation, const CTrapezoid* pTrapezoid, CPaintDC& dc);
+		EProcessingFlags eFlags, double dRotation, const CTrapezoid* pTrapezoid, CDC& dc);
 
 	// Paints the pan rectangle
 	void PaintPanRectangle(CDC& dc, const CPoint& centerPt);
@@ -56,6 +56,7 @@ public:
 
 	// Prevents painting of the dotted pan rectangle
 	void ClearLastPanRectPoint() { m_lastPanRectPoint = CPoint(-1, -1); }
+	void SetLastPanRectPoint(const CPoint& point) { m_lastPanRectPoint = point; }
 
 private:
 	CRect m_lastSectionRect;

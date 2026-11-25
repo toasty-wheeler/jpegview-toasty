@@ -1,6 +1,23 @@
 JPEGView Changelog
 ******************
 
+[1.5.0] 2026-11-25 (toasty-wheeler fork, https://github.com/toasty-wheeler/jpegview-toasty)
+New features:
+- DDS (DirectDraw Surface) images: uncompressed, BC1-BC3 / DXT1-DXT5, also with the DX10 header
+- Radiance HDR images (.hdr, .rgbe), tone-mapped for display
+  Both readers ported from the famomatic fork (https://github.com/famomatic/jpegview);
+  the Radiance header parser was fixed so that standard files open
+- HDR photos (HEIF/HEIC, AVIF, JPEG XL with PQ or HLG transfer) are decoded with full bit depth
+  and tone-mapped for SDR displays instead of looking washed out (BT.2020 / P3 to sRGB,
+  BT.2390 highlight compression to the peak brightness of the file)
+- HDR display output: with Windows HDR on, HDR photos are shown in their real brightness
+  and wide color gamut with Direct3D, the user interface is composited on top.
+  Key H switches between HDR and tone-mapped output. Setting HDRDisplay (Auto, Off, Force)
+Bug fixes:
+- TransparencyColor is used again as the viewer background of transparent images (new BackgroundMode=Color,
+  the default). Background and transparency settings apply without restarting JPEGView, and the background
+  chosen with B or the context menu is saved
+
 [1.4.0] 2026-11-07 (toasty-wheeler fork, https://github.com/toasty-wheeler/jpegview-toasty)
 New features:
 - Settings window (JPEGViewSettings.exe) for all INI settings, opened with the gear button

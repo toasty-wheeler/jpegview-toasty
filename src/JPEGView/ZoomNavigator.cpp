@@ -69,7 +69,7 @@ CSize CZoomNavigator::GetThumbSize(int width) {
 void CZoomNavigator::PaintZoomNavigator(CJPEGImage* pImage, const CRectF& visRect, const CRect& navigatorRect,
 										const CPoint& mousePt,
 										const CImageProcessingParams& processingParams,
-										EProcessingFlags eFlags, double dRotation, const CTrapezoid* pTrapezoid, CPaintDC& dc) {
+										EProcessingFlags eFlags, double dRotation, const CTrapezoid* pTrapezoid, CDC& dc) {
 	
 	void* pDIBData = (fabs(dRotation) > 1e-3) ?
 		pImage->GetThumbnailDIBRotated(navigatorRect.Size(), processingParams, eFlags, dRotation) :
@@ -79,7 +79,7 @@ void CZoomNavigator::PaintZoomNavigator(CJPEGImage* pImage, const CRectF& visRec
 
 	// Paint the DIB, transparent images on the selected background like in the main view
 	uint32* pComposited = (pDIBData != NULL && pImage->HasAlphaChannel()) ?
-		Helpers::CopyDIBOnBackground(pDIBData, navigatorRect.Width(), navigatorRect.Height(), CSettingsProvider::This().BackgroundMode(),
+		Helpers::CopyDIBOnBackground(pDIBData, navigatorRect.Width(), navigatorRect.Height(), CSettingsProvider::This().BackgroundMode(), CSettingsProvider::This().ColorTransparency(),
 			navigatorRect.left, navigatorRect.top) : NULL;
 	if (pComposited != NULL) {
 		pDIBData = pComposited;

@@ -285,6 +285,18 @@
     <ClCompile Include="ReaderTGA.cpp">
       <Filter>Source Files\Image Types</Filter>
     </ClCompile>
+    <ClCompile Include="DDSWrapper.cpp">
+      <Filter>Source Files\Image Types</Filter>
+    </ClCompile>
+    <ClCompile Include="HDRWrapper.cpp">
+      <Filter>Source Files\Image Types</Filter>
+    </ClCompile>
+    <ClCompile Include="HDRImage.cpp">
+      <Filter>Source Files\Image Types</Filter>
+    </ClCompile>
+    <ClCompile Include="HDRDisplay.cpp">
+      <Filter>Source Files\Image Types</Filter>
+    </ClCompile>
     <ClCompile Include="WEBPWrapper.cpp">
       <Filter>Source Files\Image Types</Filter>
     </ClCompile>
@@ -567,6 +579,18 @@
       <Filter>Header Files\Image Types</Filter>
     </ClInclude>
     <ClInclude Include="ReaderTGA.h">
+      <Filter>Header Files\Image Types</Filter>
+    </ClInclude>
+    <ClInclude Include="DDSWrapper.h">
+      <Filter>Header Files\Image Types</Filter>
+    </ClInclude>
+    <ClInclude Include="HDRWrapper.h">
+      <Filter>Header Files\Image Types</Filter>
+    </ClInclude>
+    <ClInclude Include="HDRImage.h">
+      <Filter>Header Files\Image Types</Filter>
+    </ClInclude>
+    <ClInclude Include="HDRDisplay.h">
       <Filter>Header Files\Image Types</Filter>
     </ClInclude>
     <ClInclude Include="TJPEGWrapper.h">

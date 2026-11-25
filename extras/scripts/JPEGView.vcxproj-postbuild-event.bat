@@ -67,6 +67,15 @@ call :COPY_DLLS libavif
 call :COPY_DLLS lcms2
 call :COPY_DLLS libraw
 
+REM the settings window (built separately with: dotnet build -c Release in src\JPEGViewSettings)
+REM JPEGView opens it instead of notepad when it is next to JPEGView.exe
+SET SETTINGS_EXE=%PROJECT_DIR%..\JPEGViewSettings\bin\Release\net48\JPEGViewSettings.exe
+IF EXIST "%SETTINGS_EXE%" (
+	echo + XCopy JPEGViewSettings.exe if needed ...
+	xcopy "%SETTINGS_EXE%" "%OUT_DIR_FULL_PATH%" /Y /D
+	xcopy "%SETTINGS_EXE%.config" "%OUT_DIR_FULL_PATH%" /Y /D
+)
+
 
 exit /b 0
 

@@ -207,12 +207,14 @@ namespace JPEGViewSettings
                 MessageBox.Show(this, "These settings need a number:\n\n" + string.Join("\n", invalid), Text, MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return false;
             }
+            bool needsRestart = false;
             try
             {
                 foreach (var row in m_rows.Where(r => r.IsDirty))
                 {
                     m_model.Write(row.Setting, row.ResetRequested ? null : row.CurrentValue);
                     row.AcceptSaved();
+                    if (!IniModel.LiveKeys.Contains(row.Setting.Key)) needsRestart = true;
                 }
             }
             catch (Exception ex)
@@ -221,8 +223,9 @@ namespace JPEGViewSettings
                 return false;
             }
             UpdateStatus();
+            IniModel.NotifyJPEGView();
             bool running = Process.GetProcessesByName("JPEGView").Length > 0;
-            m_status.Text = running ? "Saved. Close and reopen JPEGView to apply the changes." : "Saved.";
+            m_status.Text = running && needsRestart ? "Saved. Close and reopen JPEGView to apply the changes (background and transparency apply right away)." : "Saved.";
             return true;
         }
 

@@ -104,9 +104,14 @@ public:
 	bool ExplicitWindowRect() { return m_bExplicitWindowRect; }
 	CSize DefaultFixedCropSize() { return m_DefaultFixedCropSize; }
 	COLORREF ColorBackground() { return m_colorBackground; }
-	// Background behind transparent images, can be switched while viewing (not saved to the INI file)
+	// Background behind transparent images, can be switched while viewing (saved to the user INI file)
 	Helpers::EBackgroundMode BackgroundMode() { return m_eBackgroundMode; }
-	void SetBackgroundMode(Helpers::EBackgroundMode eMode) { m_eBackgroundMode = eMode; }
+	void SetBackgroundMode(Helpers::EBackgroundMode eMode);
+	// Re-reads the background and transparency settings if an INI file was changed since startup or the last call
+	// (by the settings window or a text editor). Returns true if they changed and the window must be repainted.
+	bool ReloadAppearanceSettingsIfChanged();
+	// HDR display output of HDR photos: 0 off, 1 auto (monitor with Windows HDR on), 2 force (see HDR::EDisplayMode)
+	int HDRDisplay() { return m_nHDRDisplay; }
 	COLORREF ColorGUI() { return m_colorGUI; }
 	COLORREF ColorHighlight() { return m_colorHighlight; }
 	COLORREF ColorSelected() { return m_colorSelected; }
@@ -281,6 +286,7 @@ private:
 	CSize m_DefaultFixedCropSize;
 	COLORREF m_colorBackground;
 	Helpers::EBackgroundMode m_eBackgroundMode;
+	int m_nHDRDisplay;
 	COLORREF m_colorGUI;
 	COLORREF m_colorHighlight;
 	COLORREF m_colorSelected;
@@ -325,6 +331,9 @@ private:
 	void MakeSureUserINIExists();
 	CString ReplacePlaceholdersFileNameFormat(const CString& sFileNameFormat);
 	void ReadWriteableINISettings();
+	void ReadAppearanceSettings();
+	ULONGLONG IniFilesWriteTime();
+	ULONGLONG m_nIniWriteTime;
 
 	LPCTSTR ReadUserIniString(LPCTSTR key);
 	LPCTSTR ReadGlobalIniString(LPCTSTR key);
